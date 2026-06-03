@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Globe, BarChart3, Users, Settings, X, Flame, Trophy, Target, User, Search, UserPlus, Check, Loader2 } from "lucide-react";
+import { Globe, BarChart3, Users, Settings, X, Flame, Trophy, Target, User, Search, UserPlus, Check, Loader2, LogOut } from "lucide-react";
 import AuthButton from "@/components/auth/AuthButton";
 import UsernameModal from "@/components/auth/UsernameModal";
 import { useAuth } from "@/hooks/useAuth";
@@ -388,16 +388,27 @@ function SettingsModal({ onClose, username }: { onClose: () => void; username?: 
               <p className="mt-2 text-xs text-zinc-600">v1.0.0 · Built by Rizla</p>
             </div>
           </div>
-          <div className="pt-4 border-t border-zinc-800">
-            <button onClick={() => {
-              if (confirm("Reset all local data? This clears your streak and game history.")) {
-                localStorage.removeItem("geoleague_daily_v2");
-                localStorage.removeItem("geoleague_streak");
-                localStorage.removeItem("geoleague_last_played");
-                localStorage.removeItem("geoleague_history");
-                window.location.reload();
+          <div className="pt-4 border-t border-zinc-800 space-y-3">
+            <button onClick={async () => {
+              if (isSupabaseConfigured()) {
+                try { const sb = createClient(); await sb.auth.signOut(); } catch {}
               }
-            }} className="text-sm text-red-400 hover:text-red-300 transition-colors">Reset Local Data</button>
+              // Clear all cookies
+              document.cookie.split(";").forEach(c => {
+                document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/");
+              });
+              localStorage.removeItem("geoleague_daily_v2");
+              localStorage.removeItem("geoleague_streak");
+              localStorage.removeItem("geoleague_last_played");
+              localStorage.removeItem("geoleague_history");
+              localStorage.removeItem("geoleague_longest_streak");
+              // Clear all supabase keys
+              Object.keys(localStorage).filter(k => k.startsWith("sb-")).forEach(k => localStorage.removeItem(k));
+              window.location.href = "/";
+            }} className="w-full flex items-center justify-center gap-2 py-2.5 bg-red-600/10 hover:bg-red-600/20 text-red-400 text-sm font-medium rounded-xl border border-red-500/20 transition-colors">
+              <LogOut size={14} /> Force Logout & Clear All Data
+            </button>
+            <p className="text-[10px] text-zinc-600 text-center">Clears session, cookies, streak, and game data</p>
           </div>
         </div>
       </motion.div>
