@@ -140,7 +140,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
             <div className="text-sm text-zinc-500">
               <p>GeoLeague — The Wordle of Geography</p>
               <p className="mt-1">New challenge every day at midnight UTC</p>
-              <p className="mt-2 text-xs text-zinc-600">v1.0.0 · Built by Ethan Riley</p>
+              <p className="mt-2 text-xs text-zinc-600">v1.0.0 · Built by Rizla</p>
             </div>
           </div>
           <div className="pt-4 border-t border-zinc-800">
