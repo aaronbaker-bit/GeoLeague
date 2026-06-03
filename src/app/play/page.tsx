@@ -277,9 +277,6 @@ function CompletedSidebar({
 
   const shareText = [
     `🌍 GeoLeague #${challengeNumber}`,
-    "",
-    ...rounds.map((r) => `${getHeatEmoji(getHeatLevel(r.guess.distanceKm))} ${r.location.name}: ${r.score}pts`),
-    "",
     `Total: ${totalScore}/${maxScore}`,
     streak > 1 ? `🔥 ${streak} day streak` : "",
     "",
