@@ -389,22 +389,12 @@ function SettingsModal({ onClose, username }: { onClose: () => void; username?: 
             </div>
           </div>
           <div className="pt-4 border-t border-zinc-800 space-y-3">
-            <button onClick={async () => {
-              if (isSupabaseConfigured()) {
-                try { const sb = createClient(); await sb.auth.signOut(); } catch {}
-              }
-              // Clear all cookies
-              document.cookie.split(";").forEach(c => {
-                document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/");
-              });
-              localStorage.removeItem("geoleague_daily_v2");
-              localStorage.removeItem("geoleague_streak");
-              localStorage.removeItem("geoleague_last_played");
-              localStorage.removeItem("geoleague_history");
-              localStorage.removeItem("geoleague_longest_streak");
-              // Clear all supabase keys
-              Object.keys(localStorage).filter(k => k.startsWith("sb-")).forEach(k => localStorage.removeItem(k));
-              window.location.href = "/";
+            <button onClick={() => {
+              try { if (isSupabaseConfigured()) { createClient().auth.signOut(); } } catch (e) { console.log(e); }
+              try { document.cookie.split(";").forEach(c => { document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/"); }); } catch (e) { console.log(e); }
+              try { localStorage.clear(); } catch (e) { console.log(e); }
+              try { sessionStorage.clear(); } catch (e) { console.log(e); }
+              setTimeout(() => { window.location.href = "/"; }, 500);
             }} className="w-full flex items-center justify-center gap-2 py-2.5 bg-red-600/10 hover:bg-red-600/20 text-red-400 text-sm font-medium rounded-xl border border-red-500/20 transition-colors">
               <LogOut size={14} /> Force Logout & Clear All Data
             </button>
