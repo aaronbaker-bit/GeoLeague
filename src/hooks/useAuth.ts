@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import type { User } from "@supabase/supabase-js";
 
 interface Profile {
@@ -20,38 +20,28 @@ export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
-  const supabase = createClient();
+  const [error, setError] = useState<string | null>(null);
+  const configured = isSupabaseConfigured();
 
   useEffect(() => {
-    const getUser = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      setUser(user);
+    if (!configured) { setLoading(false); return; }
+    const supabase = createClient();
 
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUser(user);
       if (user) {
-        const { data } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", user.id)
-          .single();
+        const { data } = await supabase.from("profiles").select("*").eq("id", user.id).single();
         setProfile(data);
       }
       setLoading(false);
     };
-
     getUser();
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) {
-        const { data } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", session.user.id)
-          .single();
+        const { data } = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
         setProfile(data);
       } else {
         setProfile(null);
@@ -59,35 +49,68 @@ export function useAuth() {
     });
 
     return () => subscription.unsubscribe();
-  }, [supabase]);
+  }, [configured]);
+
+  const signInWithEmail = useCallback(async (email: string, password: string) => {
+    if (!configured) return;
+    setError(null);
+    const supabase = createClient();
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) setError(error.message);
+  }, [configured]);
+
+  const signUpWithEmail = useCallback(async (email: string, password: string, displayName: string) => {
+    if (!configured) return;
+    setError(null);
+    const supabase = createClient();
+    const { error } = await supabase.auth.signUp({
+      email, password,
+      options: { data: { full_name: displayName } },
+    });
+    if (error) setError(error.message);
+    else setError(null);
+  }, [configured]);
 
   const signInWithGoogle = useCallback(async () => {
+    if (!configured) return;
+    const supabase = createClient();
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: `${window.location.origin}/auth/callback` },
     });
-  }, [supabase]);
+  }, [configured]);
 
   const signInWithDiscord = useCallback(async () => {
+    if (!configured) return;
+    const supabase = createClient();
     await supabase.auth.signInWithOAuth({
       provider: "discord",
       options: { redirectTo: `${window.location.origin}/auth/callback` },
     });
-  }, [supabase]);
+  }, [configured]);
 
   const signOut = useCallback(async () => {
+    if (!configured) return;
+    const supabase = createClient();
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);
-  }, [supabase]);
+  }, [configured]);
+
+  const updateProfile = useCallback(async (updates: Partial<Profile>) => {
+    if (!configured || !user) return;
+    const supabase = createClient();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase as any).from("profiles").update(updates).eq("id", user.id);
+    setProfile((prev) => prev ? { ...prev, ...updates } : null);
+  }, [configured, user]);
 
   return {
-    user,
-    profile,
-    loading,
-    signInWithGoogle,
-    signInWithDiscord,
-    signOut,
+    user, profile, loading, error,
+    signInWithEmail, signUpWithEmail,
+    signInWithGoogle, signInWithDiscord,
+    signOut, updateProfile,
     isAuthenticated: !!user,
+    isConfigured: configured,
   };
 }
