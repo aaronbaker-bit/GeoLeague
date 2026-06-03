@@ -83,6 +83,8 @@ export default function PlayPage() {
             targetLng={showTarget ? lastResult.location.lng : undefined}
             showTarget={!!showTarget}
             disabled={isComplete || showRoundResult}
+            completedRounds={isComplete ? rounds : undefined}
+            isGameComplete={isComplete}
           />
 
           {/* TARGET LOCATION PROMPT */}

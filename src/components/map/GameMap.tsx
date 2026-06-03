@@ -5,6 +5,7 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { Guess } from "@/types/game";
 import { getHeatLevel } from "@/lib/utils";
+import { RoundResult } from "@/hooks/useGame";
 
 interface GameMapProps {
   onGuess: (lat: number, lng: number) => void;
@@ -13,7 +14,15 @@ interface GameMapProps {
   targetLng?: number;
   showTarget: boolean;
   disabled: boolean;
+  // For end-game summary: show all rounds with lines
+  completedRounds?: RoundResult[];
+  isGameComplete?: boolean;
 }
+
+// Light clean tiles (no labels) for gameplay
+const PLAY_TILES = "https://basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}@2x.png";
+// Light tiles WITH labels for end-game summary
+const LABELED_TILES = "https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png";
 
 const HEAT_COLORS: Record<string, string> = {
   fire: "#ef4444",
@@ -24,6 +33,63 @@ const HEAT_COLORS: Record<string, string> = {
   frozen: "#94a3b8",
 };
 
+function removeDashedLines(mapInstance: maplibregl.Map) {
+  // Remove all dashed line layers/sources
+  const style = mapInstance.getStyle();
+  if (!style?.layers) return;
+  style.layers.forEach((layer) => {
+    if (layer.id.startsWith("line-")) {
+      mapInstance.removeLayer(layer.id);
+    }
+  });
+  Object.keys(style.sources || {}).forEach((src) => {
+    if (src.startsWith("line-")) {
+      mapInstance.removeSource(src);
+    }
+  });
+}
+
+function addDashedLine(
+  mapInstance: maplibregl.Map,
+  id: string,
+  from: [number, number],
+  to: [number, number],
+  color: string
+) {
+  const sourceId = `line-${id}`;
+  const layerId = `line-${id}`;
+
+  if (mapInstance.getSource(sourceId)) {
+    mapInstance.removeLayer(layerId);
+    mapInstance.removeSource(sourceId);
+  }
+
+  mapInstance.addSource(sourceId, {
+    type: "geojson",
+    data: {
+      type: "Feature",
+      properties: {},
+      geometry: {
+        type: "LineString",
+        coordinates: [from, to],
+      },
+    },
+  });
+
+  mapInstance.addLayer({
+    id: layerId,
+    type: "line",
+    source: sourceId,
+    layout: { "line-cap": "round" },
+    paint: {
+      "line-color": color,
+      "line-width": 2.5,
+      "line-dasharray": [3, 3],
+      "line-opacity": 0.8,
+    },
+  });
+}
+
 export default function GameMap({
   onGuess,
   guesses,
@@ -31,13 +97,17 @@ export default function GameMap({
   targetLng,
   showTarget,
   disabled,
+  completedRounds,
+  isGameComplete,
 }: GameMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
   const [pendingPin, setPendingPin] = useState<{ lat: number; lng: number } | null>(null);
   const pendingMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const [mapReady, setMapReady] = useState(false);
 
+  // Initialize map
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
 
@@ -46,20 +116,18 @@ export default function GameMap({
       style: {
         version: 8,
         sources: {
-          "carto-nolabels": {
+          basemap: {
             type: "raster",
-            tiles: [
-              "https://basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}@2x.png",
-            ],
+            tiles: [PLAY_TILES],
             tileSize: 256,
             attribution: "&copy; CARTO &copy; OpenStreetMap contributors",
           },
         },
         layers: [
           {
-            id: "carto-nolabels",
+            id: "basemap",
             type: "raster",
-            source: "carto-nolabels",
+            source: "basemap",
             minzoom: 0,
             maxzoom: 19,
           },
@@ -73,12 +141,32 @@ export default function GameMap({
 
     map.current.addControl(new maplibregl.NavigationControl(), "top-right");
 
+    map.current.on("load", () => setMapReady(true));
+
     return () => {
       map.current?.remove();
       map.current = null;
+      setMapReady(false);
     };
   }, []);
 
+  // Switch tiles when game completes (add labels back)
+  useEffect(() => {
+    if (!map.current || !mapReady) return;
+
+    const source = map.current.getSource("basemap") as maplibregl.RasterTileSource;
+    if (!source) return;
+
+    const newTiles = isGameComplete ? LABELED_TILES : PLAY_TILES;
+    // Update tile source
+    const style = map.current.getStyle();
+    if (style.sources.basemap) {
+      (style.sources.basemap as Record<string, unknown>).tiles = [newTiles];
+      map.current.setStyle(style);
+    }
+  }, [isGameComplete, mapReady]);
+
+  // Handle map clicks
   const handleMapClick = useCallback(
     (e: maplibregl.MapMouseEvent) => {
       if (disabled) return;
@@ -92,11 +180,11 @@ export default function GameMap({
       const el = document.createElement("div");
       el.innerHTML = `
         <div style="
-          width: 24px; height: 24px;
-          background: #8b5cf6;
+          width: 28px; height: 28px;
+          background: #FFDD00;
           border: 3px solid white;
           border-radius: 50%;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+          box-shadow: 0 2px 10px rgba(0,0,0,0.25);
           cursor: pointer;
           animation: pulse-pin 1.5s ease-in-out infinite;
         "></div>
@@ -128,27 +216,29 @@ export default function GameMap({
     setPendingPin(null);
   }, [pendingPin, onGuess]);
 
+  // Render single-round feedback (guess + target + dashed line)
   useEffect(() => {
-    if (!map.current) return;
+    if (!map.current || !mapReady || isGameComplete) return;
 
+    // Clear previous markers
     markersRef.current.forEach((m) => m.remove());
     markersRef.current = [];
+    removeDashedLines(map.current);
 
     guesses.forEach((guess, i) => {
       const heat = getHeatLevel(guess.distanceKm);
       const color = HEAT_COLORS[heat];
 
+      // Guess marker (yellow dot)
       const el = document.createElement("div");
       el.innerHTML = `
         <div style="
-          width: 20px; height: 20px;
-          background: ${color};
-          border: 2px solid white;
+          width: 22px; height: 22px;
+          background: #FFDD00;
+          border: 3px solid white;
           border-radius: 50%;
-          box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-          display: flex; align-items: center; justify-content: center;
-          font-size: 10px; font-weight: 700; color: white;
-        ">${i + 1}</div>
+          box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+        "></div>
       `;
 
       const marker = new maplibregl.Marker({ element: el })
@@ -158,17 +248,18 @@ export default function GameMap({
     });
 
     if (showTarget && targetLat !== undefined && targetLng !== undefined) {
+      // Target marker (blue/teal dot)
       const el = document.createElement("div");
       el.innerHTML = `
         <div style="
-          width: 28px; height: 28px;
-          background: #10b981;
+          width: 26px; height: 26px;
+          background: #22d3ee;
           border: 3px solid white;
           border-radius: 50%;
-          box-shadow: 0 0 0 4px rgba(16,185,129,0.3), 0 2px 8px rgba(0,0,0,0.3);
+          box-shadow: 0 0 0 4px rgba(34,211,238,0.25), 0 2px 8px rgba(0,0,0,0.25);
           display: flex; align-items: center; justify-content: center;
-          font-size: 14px;
-        ">✓</div>
+          font-size: 12px;
+        ">📍</div>
       `;
 
       const marker = new maplibregl.Marker({ element: el })
@@ -176,15 +267,101 @@ export default function GameMap({
         .addTo(map.current!);
       markersRef.current.push(marker);
 
+      // Dashed line from guess to target
       if (guesses.length > 0) {
         const lastGuess = guesses[guesses.length - 1];
+        addDashedLine(
+          map.current,
+          "round",
+          [lastGuess.lng, lastGuess.lat],
+          [targetLng, targetLat],
+          "#ef4444"
+        );
+
+        // Fit bounds to show both
         const bounds = new maplibregl.LngLatBounds();
         bounds.extend([lastGuess.lng, lastGuess.lat]);
         bounds.extend([targetLng, targetLat]);
-        map.current?.fitBounds(bounds, { padding: 80, duration: 1000 });
+        map.current?.fitBounds(bounds, { padding: 100, duration: 1000 });
       }
     }
-  }, [guesses, showTarget, targetLat, targetLng]);
+  }, [guesses, showTarget, targetLat, targetLng, mapReady, isGameComplete]);
+
+  // End-game summary: show ALL rounds with pins and lines
+  useEffect(() => {
+    if (!map.current || !mapReady || !isGameComplete || !completedRounds?.length) return;
+
+    // Clear everything
+    markersRef.current.forEach((m) => m.remove());
+    markersRef.current = [];
+    removeDashedLines(map.current);
+
+    // Wait for style to settle after tile switch
+    const renderSummary = () => {
+      if (!map.current) return;
+
+      const bounds = new maplibregl.LngLatBounds();
+
+      completedRounds.forEach((round, i) => {
+        const { guess, location } = round;
+        const heat = getHeatLevel(guess.distanceKm);
+        const color = HEAT_COLORS[heat];
+
+        // Guess marker (yellow with number)
+        const guessEl = document.createElement("div");
+        guessEl.innerHTML = `
+          <div style="
+            width: 24px; height: 24px;
+            background: #FFDD00;
+            border: 3px solid white;
+            border-radius: 50%;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 11px; font-weight: 800; color: #333;
+          ">${i + 1}</div>
+        `;
+        const guessMarker = new maplibregl.Marker({ element: guessEl })
+          .setLngLat([guess.lng, guess.lat])
+          .addTo(map.current!);
+        markersRef.current.push(guessMarker);
+
+        // Target marker (cyan)
+        const targetEl = document.createElement("div");
+        targetEl.innerHTML = `
+          <div style="
+            width: 24px; height: 24px;
+            background: #22d3ee;
+            border: 3px solid white;
+            border-radius: 50%;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 11px; font-weight: 800; color: #333;
+          ">${i + 1}</div>
+        `;
+        const targetMarker = new maplibregl.Marker({ element: targetEl })
+          .setLngLat([location.lng, location.lat])
+          .addTo(map.current!);
+        markersRef.current.push(targetMarker);
+
+        // Dashed line
+        addDashedLine(
+          map.current!,
+          `summary-${i}`,
+          [guess.lng, guess.lat],
+          [location.lng, location.lat],
+          color
+        );
+
+        bounds.extend([guess.lng, guess.lat]);
+        bounds.extend([location.lng, location.lat]);
+      });
+
+      map.current?.fitBounds(bounds, { padding: 60, duration: 1200 });
+    };
+
+    // Small delay to let tile source switch complete
+    setTimeout(renderSummary, 500);
+  }, [isGameComplete, completedRounds, mapReady]);
 
   return (
     <div className="relative w-full h-full">
@@ -198,6 +375,22 @@ export default function GameMap({
           >
             Confirm Guess
           </button>
+        </div>
+      )}
+
+      {/* Legend when game is complete */}
+      {isGameComplete && completedRounds && completedRounds.length > 0 && (
+        <div className="absolute bottom-6 left-6 z-10 bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 shadow-md text-xs">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded-full bg-[#FFDD00] border border-white shadow-sm" />
+              <span className="text-zinc-600">Your guess</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded-full bg-[#22d3ee] border border-white shadow-sm" />
+              <span className="text-zinc-600">Actual location</span>
+            </div>
+          </div>
         </div>
       )}
 
