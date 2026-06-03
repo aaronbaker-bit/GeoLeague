@@ -95,7 +95,7 @@ export default function AuthButton() {
     <div className="relative">
       <button onClick={() => setShowMenu(!showMenu)} className="flex items-center gap-2">
         {profile?.avatar_url ? (
-          <img src={profile.avatar_url} alt="" className="w-8 h-8 rounded-full border-2 border-zinc-700" />
+          <img src={profile.avatar_url} alt="" className="w-8 h-8 rounded-full border-2 border-zinc-700" referrerPolicy="no-referrer" />
         ) : (
           <div className="w-8 h-8 rounded-full bg-violet-600 flex items-center justify-center text-xs font-bold text-white">
             {(profile?.display_name || user?.email || "?")[0].toUpperCase()}
