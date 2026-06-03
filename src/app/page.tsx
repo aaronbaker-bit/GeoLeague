@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { getDailyLocation } from "@/data/locations";
 import { useEffect, useState } from "react";
+import Header from "@/components/layout/Header";
 
 function useCountdown() {
   const [timeLeft, setTimeLeft] = useState("");
@@ -52,6 +53,7 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen flex flex-col">
+      <Header challengeNumber={challengeNumber} streak={streak} />
       {/* Hero */}
       <div className="flex-1 flex flex-col items-center justify-center px-6 py-20 relative overflow-hidden">
         {/* Background gradient orbs */}
