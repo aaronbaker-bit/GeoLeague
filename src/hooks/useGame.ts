@@ -1,133 +1,68 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { GameState, Guess, ScoreBreakdown } from "@/types/game";
-import { haversineDistance, calculateScore, getHeatLevel } from "@/lib/utils";
-import { getDailyLocation } from "@/data/locations";
+import { Guess, Location } from "@/types/game";
+import { haversineDistance } from "@/lib/utils";
+import { getDailyLocations, ROUNDS_PER_DAY, POINTS_PER_ROUND, MAX_DAILY_SCORE } from "@/data/locations";
 
-const MAX_GUESSES = 6;
-const STORAGE_KEY = "geoleague_daily";
+const STORAGE_KEY = "geoleague_daily_v2";
 
-interface StoredGame {
+export interface RoundResult {
+  location: Location;
+  guess: Guess;
+  score: number;
+}
+
+interface DailyState {
   date: string;
-  state: GameState;
-  scoreBreakdown?: ScoreBreakdown;
+  currentRound: number;
+  rounds: RoundResult[];
+  totalScore: number;
+  status: "playing" | "completed";
+  startTime: number;
+}
+
+function scoreGuess(distanceKm: number): number {
+  if (distanceKm < 10) return 200;
+  if (distanceKm < 50) return 190;
+  if (distanceKm < 150) return 170;
+  if (distanceKm < 500) return Math.round(170 * (1 - (distanceKm - 150) / 1000));
+  if (distanceKm < 2000) return Math.round(100 * (1 - (distanceKm - 500) / 3000));
+  if (distanceKm < 5000) return Math.round(50 * (1 - (distanceKm - 2000) / 8000));
+  return Math.max(0, Math.round(20 * (1 - distanceKm / 20000)));
 }
 
 export function useGame() {
-  const { location, challengeNumber } = getDailyLocation();
+  const { locations, challengeNumber } = getDailyLocations();
   const todayKey = new Date().toISOString().split("T")[0];
 
-  const [gameState, setGameState] = useState<GameState>(() => {
+  const [state, setState] = useState<DailyState>(() => {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
-        const parsed: StoredGame = JSON.parse(stored);
-        if (parsed.date === todayKey) return parsed.state;
+        const parsed: DailyState = JSON.parse(stored);
+        if (parsed.date === todayKey) return parsed;
       }
     }
     return {
-      challengeId: location.id,
-      location,
-      guesses: [],
-      hintsRevealed: 0,
-      score: 0,
+      date: todayKey,
+      currentRound: 0,
+      rounds: [],
+      totalScore: 0,
       status: "playing",
       startTime: Date.now(),
     };
   });
 
-  const [scoreBreakdown, setScoreBreakdown] = useState<ScoreBreakdown | null>(
-    () => {
-      if (typeof window !== "undefined") {
-        const stored = localStorage.getItem(STORAGE_KEY);
-        if (stored) {
-          const parsed: StoredGame = JSON.parse(stored);
-          if (parsed.date === todayKey && parsed.scoreBreakdown)
-            return parsed.scoreBreakdown;
-        }
-      }
-      return null;
-    }
-  );
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }, [state]);
 
   useEffect(() => {
-    const data: StoredGame = {
-      date: todayKey,
-      state: gameState,
-      scoreBreakdown: scoreBreakdown ?? undefined,
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  }, [gameState, scoreBreakdown, todayKey]);
-
-  const makeGuess = useCallback(
-    (lat: number, lng: number) => {
-      if (gameState.status === "completed") return;
-      if (gameState.guesses.length >= MAX_GUESSES) return;
-
-      const distanceKm = haversineDistance(
-        lat,
-        lng,
-        location.lat,
-        location.lng
-      );
-
-      const guess: Guess = {
-        lat,
-        lng,
-        distanceKm,
-        timestamp: Date.now(),
-      };
-
-      const newGuesses = [...gameState.guesses, guess];
-      const isClose = distanceKm < 50;
-      const isLastGuess = newGuesses.length >= MAX_GUESSES;
-      const isComplete = isClose || isLastGuess;
-
-      const elapsedMs = Date.now() - gameState.startTime;
-      const breakdown = calculateScore(
-        newGuesses,
-        location,
-        gameState.hintsRevealed,
-        elapsedMs
-      );
-
-      if (isComplete) {
-        setScoreBreakdown(breakdown);
-      }
-
-      setGameState((prev) => ({
-        ...prev,
-        guesses: newGuesses,
-        score: breakdown.total,
-        status: isComplete ? "completed" : "playing",
-        endTime: isComplete ? Date.now() : undefined,
-      }));
-    },
-    [gameState, location]
-  );
-
-  const revealHint = useCallback(() => {
-    if (gameState.hintsRevealed >= location.hints.length) return;
-    setGameState((prev) => ({
-      ...prev,
-      hintsRevealed: prev.hintsRevealed + 1,
-    }));
-  }, [gameState.hintsRevealed, location.hints.length]);
-
-  const streak = (() => {
-    if (typeof window === "undefined") return 0;
-    const stored = localStorage.getItem("geoleague_streak");
-    return stored ? parseInt(stored, 10) : 0;
-  })();
-
-  useEffect(() => {
-    if (gameState.status === "completed") {
+    if (state.status === "completed") {
       const currentStreak = localStorage.getItem("geoleague_streak");
       const lastPlayed = localStorage.getItem("geoleague_last_played");
-      const yesterday = new Date(Date.now() - 86400000)
-        .toISOString()
-        .split("T")[0];
+      const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
 
       if (lastPlayed === yesterday) {
         const newStreak = (parseInt(currentStreak || "0", 10) || 0) + 1;
@@ -137,19 +72,56 @@ export function useGame() {
       }
       localStorage.setItem("geoleague_last_played", todayKey);
     }
-  }, [gameState.status, todayKey]);
+  }, [state.status, todayKey]);
+
+  const currentLocation = locations[state.currentRound] || locations[locations.length - 1];
+  const isComplete = state.status === "completed";
+
+  const makeGuess = useCallback(
+    (lat: number, lng: number) => {
+      if (isComplete) return;
+      if (state.currentRound >= ROUNDS_PER_DAY) return;
+
+      const distanceKm = haversineDistance(lat, lng, currentLocation.lat, currentLocation.lng);
+      const roundScore = scoreGuess(distanceKm);
+
+      const guess: Guess = { lat, lng, distanceKm, timestamp: Date.now() };
+      const result: RoundResult = { location: currentLocation, guess, score: roundScore };
+
+      const newRounds = [...state.rounds, result];
+      const newTotal = state.totalScore + roundScore;
+      const nextRound = state.currentRound + 1;
+      const done = nextRound >= ROUNDS_PER_DAY;
+
+      setState((prev) => ({
+        ...prev,
+        currentRound: nextRound,
+        rounds: newRounds,
+        totalScore: newTotal,
+        status: done ? "completed" : "playing",
+      }));
+    },
+    [state, currentLocation, isComplete]
+  );
+
+  const streak = (() => {
+    if (typeof window === "undefined") return 0;
+    const stored = localStorage.getItem("geoleague_streak");
+    return stored ? parseInt(stored, 10) : 0;
+  })();
 
   return {
-    gameState,
-    location,
-    challengeNumber,
-    scoreBreakdown,
+    currentRound: state.currentRound,
+    totalRounds: ROUNDS_PER_DAY,
+    currentLocation,
+    isComplete,
+    totalScore: state.totalScore,
+    maxScore: MAX_DAILY_SCORE,
+    pointsPerRound: POINTS_PER_ROUND,
+    rounds: state.rounds,
     makeGuess,
-    revealHint,
-    maxGuesses: MAX_GUESSES,
+    challengeNumber,
     streak,
-    remainingGuesses: MAX_GUESSES - gameState.guesses.length,
-    currentHints: location.hints.slice(0, gameState.hintsRevealed),
-    availableHints: location.hints.length - gameState.hintsRevealed,
+    locations,
   };
 }

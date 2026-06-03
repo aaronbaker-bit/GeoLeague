@@ -404,3 +404,27 @@ export function getDailyLocation(): { location: Location; challengeNumber: numbe
   const locationIndex = daysSinceStart % LOCATIONS.length;
   return { location: LOCATIONS[locationIndex], challengeNumber };
 }
+
+function seededShuffle(arr: Location[], seed: number): Location[] {
+  const copy = [...arr];
+  let s = seed;
+  for (let i = copy.length - 1; i > 0; i--) {
+    s = (s * 16807 + 0) % 2147483647;
+    const j = s % (i + 1);
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+export const ROUNDS_PER_DAY = 6;
+export const POINTS_PER_ROUND = 200;
+export const MAX_DAILY_SCORE = ROUNDS_PER_DAY * POINTS_PER_ROUND;
+
+export function getDailyLocations(): { locations: Location[]; challengeNumber: number } {
+  const start = new Date("2025-01-01").getTime();
+  const now = new Date().getTime();
+  const daysSinceStart = Math.floor((now - start) / (1000 * 60 * 60 * 24));
+  const challengeNumber = daysSinceStart + 1;
+  const shuffled = seededShuffle(LOCATIONS, daysSinceStart + 42);
+  return { locations: shuffled.slice(0, ROUNDS_PER_DAY), challengeNumber };
+}

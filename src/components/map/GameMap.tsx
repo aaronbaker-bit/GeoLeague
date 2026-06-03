@@ -46,18 +46,20 @@ export default function GameMap({
       style: {
         version: 8,
         sources: {
-          "osm-tiles": {
+          "carto-nolabels": {
             type: "raster",
-            tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+            tiles: [
+              "https://basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}@2x.png",
+            ],
             tileSize: 256,
-            attribution: "&copy; OpenStreetMap contributors",
+            attribution: "&copy; CARTO &copy; OpenStreetMap contributors",
           },
         },
         layers: [
           {
-            id: "osm-tiles",
+            id: "carto-nolabels",
             type: "raster",
-            source: "osm-tiles",
+            source: "carto-nolabels",
             minzoom: 0,
             maxzoom: 19,
           },
