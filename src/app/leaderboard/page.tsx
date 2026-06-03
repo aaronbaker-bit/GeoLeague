@@ -9,11 +9,12 @@ import { Trophy, Medal, Globe } from "lucide-react";
 import Link from "next/link";
 
 interface LeaderboardEntry {
-  user_id: string;
-  display_name: string | null;
+  id: string;
+  display_name: string;
   avatar_url: string | null;
   score: number;
   rank: number;
+  isYou?: boolean;
 }
 
 export default function LeaderboardPage() {
@@ -23,84 +24,83 @@ export default function LeaderboardPage() {
   const [tab, setTab] = useState<"daily" | "weekly" | "alltime">("daily");
 
   useEffect(() => {
-    const fetchLeaderboard = async () => {
+    const load = async () => {
       setLoading(true);
-      const localEntries: LeaderboardEntry[] = [];
+      const results: LeaderboardEntry[] = [];
 
-      // Always add local score if available
+      // Get local score
       if (typeof window !== "undefined") {
         const stored = localStorage.getItem("geoleague_daily_v2");
         if (stored) {
           const parsed = JSON.parse(stored);
           const today = new Date().toISOString().split("T")[0];
-          if (parsed.date === today && parsed.status === "completed") {
-            // Try to get user display name from Supabase auth
-            let displayName = "You";
-            let avatarUrl: string | null = null;
+          if (parsed.date === today && parsed.status === "completed" && (tab === "daily" || tab === "weekly")) {
+            let name = "You";
+            let avatar: string | null = null;
+
             if (isSupabaseConfigured()) {
-              const supabase = createClient();
-              const { data: { user } } = await supabase.auth.getUser();
-              if (user) {
-                displayName = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0] || "You";
-                avatarUrl = user.user_metadata?.avatar_url || null;
-              }
+              try {
+                const supabase = createClient();
+                const { data: { user } } = await supabase.auth.getUser();
+                if (user) {
+                  name = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0] || "You";
+                  avatar = user.user_metadata?.avatar_url || null;
+                }
+              } catch { /* ignore */ }
             }
-            localEntries.push({
-              user_id: "local",
-              display_name: displayName,
-              avatar_url: avatarUrl,
+
+            results.push({
+              id: "you",
+              display_name: name,
+              avatar_url: avatar,
               score: parsed.totalScore,
               rank: 1,
+              isYou: true,
             });
           }
         }
       }
 
-      if (!isSupabaseConfigured()) {
-        setEntries(localEntries);
-        setLoading(false);
-        return;
-      }
-
-      const supabase = createClient();
-
-      try {
-        if (tab === "alltime") {
-          const { data } = await supabase
+      // Get all-time from profiles
+      if (tab === "alltime" && isSupabaseConfigured()) {
+        try {
+          const supabase = createClient();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const { data } = await (supabase as any)
             .from("profiles")
             .select("id, display_name, avatar_url, elo_rating")
+            .gt("total_games", 0)
             .order("elo_rating", { ascending: false })
             .limit(50);
 
           if (data && data.length > 0) {
-            const dbEntries = (data as { id: string; display_name: string | null; avatar_url: string | null; elo_rating: number }[]).map((p, i) => ({
-              user_id: p.id,
-              display_name: p.display_name,
-              avatar_url: p.avatar_url,
-              score: p.elo_rating,
-              rank: i + 1,
-            }));
-            setEntries(dbEntries);
-          } else {
-            setEntries(localEntries);
+            data.forEach((p: { id: string; display_name: string | null; avatar_url: string | null; elo_rating: number }, i: number) => {
+              results.push({
+                id: p.id,
+                display_name: p.display_name || "Player",
+                avatar_url: p.avatar_url,
+                score: p.elo_rating,
+                rank: i + 1,
+              });
+            });
           }
-        } else {
-          // Daily/weekly — show local scores for now, DB scores when available
-          setEntries(localEntries);
-        }
-      } catch {
-        setEntries(localEntries);
+        } catch { /* ignore */ }
       }
+
+      // Re-rank
+      results.sort((a, b) => b.score - a.score);
+      results.forEach((e, i) => e.rank = i + 1);
+
+      setEntries(results);
       setLoading(false);
     };
 
-    fetchLeaderboard();
-  }, [tab, challengeNumber]);
+    load();
+  }, [tab]);
 
   const streak = (() => {
     if (typeof window === "undefined") return 0;
-    const s = localStorage.getItem("geoleague_streak");
-    return s ? parseInt(s, 10) : 0;
+    return parseInt(localStorage.getItem("geoleague_streak") || "0", 10);
   })();
 
   return (
@@ -125,9 +125,7 @@ export default function LeaderboardPage() {
 
           {loading ? (
             <div className="space-y-3">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="h-16 bg-zinc-900 rounded-xl animate-pulse" />
-              ))}
+              {[1,2,3].map(i => <div key={i} className="h-16 bg-zinc-900 rounded-xl animate-pulse" />)}
             </div>
           ) : entries.length === 0 ? (
             <div className="text-center py-16">
@@ -139,9 +137,9 @@ export default function LeaderboardPage() {
           ) : (
             <div className="space-y-2">
               {entries.map((entry, i) => (
-                <motion.div key={entry.user_id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}
-                  className={`flex items-center gap-4 p-4 rounded-xl border transition-colors ${
-                    entry.user_id === "local" ? "bg-violet-500/10 border-violet-500/30" :
+                <motion.div key={entry.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}
+                  className={`flex items-center gap-4 p-4 rounded-xl border ${
+                    entry.isYou ? "bg-violet-500/10 border-violet-500/30" :
                     entry.rank === 1 ? "bg-amber-500/5 border-amber-500/20" :
                     entry.rank === 2 ? "bg-zinc-400/5 border-zinc-400/20" :
                     entry.rank === 3 ? "bg-orange-500/5 border-orange-500/20" : "bg-zinc-900/50 border-zinc-800"
@@ -156,14 +154,14 @@ export default function LeaderboardPage() {
                   {entry.avatar_url ? (
                     <img src={entry.avatar_url} alt="" className="w-10 h-10 rounded-full border-2 border-zinc-700" referrerPolicy="no-referrer" />
                   ) : (
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold ${entry.user_id === "local" ? "bg-violet-600 text-white" : "bg-zinc-800 text-zinc-400"}`}>
-                      {(entry.display_name || "?")[0].toUpperCase()}
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold ${entry.isYou ? "bg-violet-600 text-white" : "bg-zinc-800 text-zinc-400"}`}>
+                      {entry.display_name[0].toUpperCase()}
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-white truncate">
-                      {entry.display_name || "Anonymous"}
-                      {entry.user_id === "local" && <span className="text-xs text-violet-400 ml-2">(you)</span>}
+                      {entry.display_name}
+                      {entry.isYou && <span className="text-xs text-violet-400 ml-2">(you)</span>}
                     </div>
                   </div>
                   <div className="text-right">
