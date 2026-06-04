@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { createClient } from "@/lib/supabase/client";
 import { getDailyLocation } from "@/data/locations";
 import Header from "@/components/layout/Header";
 import { motion } from "framer-motion";
@@ -23,86 +23,91 @@ export default function LeaderboardPage() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"daily" | "weekly" | "alltime">("daily");
 
+  const streak = typeof window !== "undefined"
+    ? parseInt(localStorage.getItem("geoleague_streak") || "0", 10)
+    : 0;
+
   useEffect(() => {
-    const load = async () => {
+    let cancelled = false;
+
+    async function loadEntries() {
       setLoading(true);
-      const results: LeaderboardEntry[] = [];
 
-      // Get local score
-      if (typeof window !== "undefined") {
-        const stored = localStorage.getItem("geoleague_daily_v2");
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          const today = new Date().toISOString().split("T")[0];
-          if (parsed.date === today && parsed.status === "completed" && (tab === "daily" || tab === "weekly")) {
-            let name = "You";
-            let avatar: string | null = null;
+      if (tab === "daily" || tab === "weekly") {
+        try {
+          const stored = localStorage.getItem("geoleague_daily_v2");
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            const today = new Date().toISOString().split("T")[0];
+            if (parsed.date === today && parsed.status === "completed") {
+              let name = "You";
+              let avatar: string | null = null;
 
-            if (isSupabaseConfigured()) {
-              try {
-                const supabase = createClient();
-                const { data: { session } } = await supabase.auth.getSession();
-                if (session?.user) {
-                  const u = session.user;
-                  name = u.user_metadata?.full_name || u.user_metadata?.name || u.email?.split("@")[0] || "You";
-                  avatar = u.user_metadata?.avatar_url || u.user_metadata?.picture || null;
-                }
-              } catch (e) { console.error("Leaderboard auth:", e); }
+              const supabase = createClient();
+              if (supabase) {
+                try {
+                  const { data: { user } } = await supabase.auth.getUser();
+                  if (user) {
+                    name = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0] || "You";
+                    avatar = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
+                  }
+                } catch {}
+              }
+
+              if (!cancelled) {
+                setEntries([{
+                  id: "you",
+                  display_name: name,
+                  avatar_url: avatar,
+                  score: parsed.totalScore,
+                  rank: 1,
+                  isYou: true,
+                }]);
+                setLoading(false);
+              }
+              return;
             }
-
-            results.push({
-              id: "you",
-              display_name: name,
-              avatar_url: avatar,
-              score: parsed.totalScore,
-              rank: 1,
-              isYou: true,
-            });
           }
+        } catch {}
+
+        if (!cancelled) {
+          setEntries([]);
+          setLoading(false);
         }
+        return;
       }
 
-      // Get all-time from profiles
-      if (tab === "alltime" && isSupabaseConfigured()) {
-        try {
-          const supabase = createClient();
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const { data } = await (supabase as any)
-            .from("profiles")
-            .select("id, display_name, avatar_url, elo_rating")
-            .gt("total_games", 0)
-            .order("elo_rating", { ascending: false })
-            .limit(50);
+      if (tab === "alltime") {
+        const supabase = createClient();
+        if (supabase) {
+          try {
+            const { data } = await supabase
+              .from("profiles")
+              .select("id, display_name, avatar_url, elo_rating")
+              .gt("total_games", 0)
+              .order("elo_rating", { ascending: false })
+              .limit(50);
 
-          if (data && data.length > 0) {
-            data.forEach((p: { id: string; display_name: string | null; avatar_url: string | null; elo_rating: number }, i: number) => {
-              results.push({
+            if (!cancelled && data && data.length > 0) {
+              setEntries(data.map((p: { id: string; display_name: string | null; avatar_url: string | null; elo_rating: number }, i: number) => ({
                 id: p.id,
                 display_name: p.display_name || "Player",
                 avatar_url: p.avatar_url,
                 score: p.elo_rating,
                 rank: i + 1,
-              });
-            });
-          }
-        } catch { /* ignore */ }
+              })));
+            }
+          } catch {}
+        }
+
+        if (!cancelled) setLoading(false);
+        return;
       }
+    }
 
-      // Re-rank
-      results.sort((a, b) => b.score - a.score);
-      results.forEach((e, i) => e.rank = i + 1);
-
-      setEntries(results);
-      setLoading(false);
-    };
-
-    load();
+    loadEntries();
+    return () => { cancelled = true; };
   }, [tab]);
-
-  const streak = (() => {
-    if (typeof window === "undefined") return 0;
-    return parseInt(localStorage.getItem("geoleague_streak") || "0", 10);
-  })();
 
   return (
     <div className="flex flex-col h-screen overflow-hidden">
