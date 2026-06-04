@@ -75,7 +75,7 @@ export default function PlayPage() {
       <Header challengeNumber={challengeNumber} streak={streak} />
 
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
-        <div className="flex-1 relative p-3">
+        <div className="flex-1 relative p-2 min-h-[50vh] lg:min-h-0">
           <GameMap
             onGuess={makeGuess}
             guesses={showTarget ? [lastResult.guess] : []}
@@ -157,7 +157,7 @@ export default function PlayPage() {
         </div>
 
         {/* Sidebar */}
-        <div className="w-full lg:w-96 border-t lg:border-t-0 lg:border-l border-zinc-800 overflow-y-auto">
+        <div className="w-full lg:w-96 border-t lg:border-t-0 lg:border-l border-zinc-800 overflow-y-auto max-h-[35vh] lg:max-h-none">
           <div className="p-4 space-y-4">
             <AnimatePresence mode="wait">
               {isComplete ? (
