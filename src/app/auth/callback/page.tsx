@@ -2,43 +2,46 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { useRouter } from "next/navigation";
 import { Globe, Loader2 } from "lucide-react";
 
 export default function AuthCallbackPage() {
   const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
 
   useEffect(() => {
-    const handleCallback = async () => {
+    const handle = async () => {
       try {
         const supabase = createClient();
-        if (!supabase) {
-          setError("Supabase not configured");
+        if (!supabase) { setError("Supabase not configured"); return; }
+
+        // Implicit flow: tokens are in the URL hash, Supabase picks them up automatically
+        const { data, error } = await supabase.auth.getSession();
+        if (error) {
+          console.error("Session error:", error);
+          setError(error.message);
           return;
         }
 
-        const params = new URLSearchParams(window.location.search);
-        const code = params.get("code");
-
-        if (code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(code);
-          if (error) {
-            console.error("Auth exchange error:", error);
-            setError(error.message);
-            return;
-          }
+        if (data.session) {
+          window.location.href = "/play";
+        } else {
+          // Wait a moment for Supabase to process the hash
+          setTimeout(async () => {
+            const { data: retry } = await supabase.auth.getSession();
+            if (retry.session) {
+              window.location.href = "/play";
+            } else {
+              window.location.href = "/play";
+            }
+          }, 1000);
         }
-
-        router.push("/play");
       } catch (e) {
         console.error("Callback error:", e);
         setError(String(e));
       }
     };
 
-    handleCallback();
-  }, [router]);
+    handle();
+  }, []);
 
   if (error) {
     return (
