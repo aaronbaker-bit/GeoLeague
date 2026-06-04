@@ -20,8 +20,8 @@ interface GameMapProps {
 }
 
 // Light clean tiles (no labels) for gameplay
-// OpenTopoMap — shows terrain, forests, grassland, no city labels at low zoom
-const PLAY_TILES = "https://tile.opentopomap.org/{z}/{x}/{y}.png";
+// CARTO Voyager no-labels — clean light map with subtle terrain coloring, no text
+const PLAY_TILES = "https://basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}@2x.png";
 // Light tiles WITH labels for end-game summary
 const LABELED_TILES = "https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png";
 
