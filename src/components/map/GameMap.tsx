@@ -20,8 +20,8 @@ interface GameMapProps {
 }
 
 // Light clean tiles (no labels) for gameplay
-// Stamen terrain background — shows grassland, forests, mountains, no labels
-const PLAY_TILES = "https://tiles.stadiamaps.com/tiles/stamen_terrain_background/{z}/{x}/{y}@2x.png";
+// OpenTopoMap — shows terrain, forests, grassland, no city labels at low zoom
+const PLAY_TILES = "https://tile.opentopomap.org/{z}/{x}/{y}.png";
 // Light tiles WITH labels for end-game summary
 const LABELED_TILES = "https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png";
 
