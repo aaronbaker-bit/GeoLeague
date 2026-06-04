@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createBrowserClient } from "@supabase/ssr";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 
 export default function DebugPage() {
   const [info, setInfo] = useState<Record<string, unknown>>({});
@@ -18,8 +18,8 @@ export default function DebugPage() {
       try {
         const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
         const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-        const supabase = createBrowserClient(url, key, {
-          auth: { flowType: "implicit" },
+        const supabase = createSupabaseClient(url, key, {
+          auth: { flowType: "implicit", detectSessionInUrl: true, persistSession: true },
         });
         result.clientCreated = true;
 

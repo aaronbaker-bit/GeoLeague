@@ -8,39 +8,33 @@ export default function AuthCallbackPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const handle = async () => {
-      try {
-        const supabase = createClient();
-        if (!supabase) { setError("Supabase not configured"); return; }
+    // The Supabase client with detectSessionInUrl:true will automatically
+    // parse the #access_token from the URL hash and store the session.
+    // We just need to create the client and wait for onAuthStateChange.
+    const supabase = createClient();
+    if (!supabase) {
+      setError("Supabase not configured");
+      return;
+    }
 
-        // Implicit flow: tokens are in the URL hash, Supabase picks them up automatically
-        const { data, error } = await supabase.auth.getSession();
-        if (error) {
-          console.error("Session error:", error);
-          setError(error.message);
-          return;
-        }
-
-        if (data.session) {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event: string) => {
+        if (event === "SIGNED_IN") {
+          // Session is now stored — redirect
           window.location.href = "/play";
-        } else {
-          // Wait a moment for Supabase to process the hash
-          setTimeout(async () => {
-            const { data: retry } = await supabase.auth.getSession();
-            if (retry.session) {
-              window.location.href = "/play";
-            } else {
-              window.location.href = "/play";
-            }
-          }, 1000);
         }
-      } catch (e) {
-        console.error("Callback error:", e);
-        setError(String(e));
       }
-    };
+    );
 
-    handle();
+    // Fallback: if already signed in or hash was already processed
+    setTimeout(async () => {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
+        window.location.href = "/play";
+      }
+    }, 2000);
+
+    return () => subscription.unsubscribe();
   }, []);
 
   if (error) {
