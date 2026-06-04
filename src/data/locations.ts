@@ -397,7 +397,7 @@ export const LOCATIONS: Location[] = [
 ];
 
 export function getDailyLocation(): { location: Location; challengeNumber: number } {
-  const start = new Date("2025-01-01").getTime();
+  const start = new Date("2026-06-04").getTime();
   const now = new Date().getTime();
   const daysSinceStart = Math.floor((now - start) / (1000 * 60 * 60 * 24));
   const challengeNumber = daysSinceStart + 1;
@@ -421,7 +421,7 @@ export const POINTS_PER_ROUND = 200;
 export const MAX_DAILY_SCORE = ROUNDS_PER_DAY * POINTS_PER_ROUND;
 
 export function getDailyLocations(): { locations: Location[]; challengeNumber: number } {
-  const start = new Date("2025-01-01").getTime();
+  const start = new Date("2026-06-04").getTime();
   const now = new Date().getTime();
   const daysSinceStart = Math.floor((now - start) / (1000 * 60 * 60 * 24));
   const challengeNumber = daysSinceStart + 1;
