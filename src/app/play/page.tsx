@@ -100,7 +100,7 @@ export default function PlayPage() {
                   Find this location
                 </div>
                 <div className="text-xl font-bold text-white">
-                  📍 {currentLocation.name}
+                  📍 {currentLocation.name}, {currentLocation.country}
                 </div>
                 <div className="text-xs text-zinc-500 mt-1">
                   {currentLocation.category} · {currentLocation.difficulty}
