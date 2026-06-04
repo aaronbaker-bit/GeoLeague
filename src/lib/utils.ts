@@ -147,7 +147,8 @@ export function formatDistance(km: number): string {
 }
 
 export function getDailyChallengeNumber(): number {
-  const start = new Date("2026-06-04").getTime();
-  const now = new Date().getTime();
-  return Math.floor((now - start) / (1000 * 60 * 60 * 24)) + 1;
+  const now = new Date();
+  const utcToday = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const startDay = Date.UTC(2026, 5, 4);
+  return Math.floor((utcToday - startDay) / (1000 * 60 * 60 * 24)) + 1;
 }

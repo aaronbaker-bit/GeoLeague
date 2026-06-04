@@ -397,9 +397,10 @@ export const LOCATIONS: Location[] = [
 ];
 
 export function getDailyLocation(): { location: Location; challengeNumber: number } {
-  const start = new Date("2026-06-04").getTime();
-  const now = new Date().getTime();
-  const daysSinceStart = Math.floor((now - start) / (1000 * 60 * 60 * 24));
+  const now = new Date();
+  const utcToday = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const startDay = Date.UTC(2026, 5, 4); // June 4 2026 (month is 0-indexed)
+  const daysSinceStart = Math.floor((utcToday - startDay) / (1000 * 60 * 60 * 24));
   const challengeNumber = daysSinceStart + 1;
   const locationIndex = daysSinceStart % LOCATIONS.length;
   return { location: LOCATIONS[locationIndex], challengeNumber };
@@ -421,9 +422,10 @@ export const POINTS_PER_ROUND = 200;
 export const MAX_DAILY_SCORE = ROUNDS_PER_DAY * POINTS_PER_ROUND;
 
 export function getDailyLocations(): { locations: Location[]; challengeNumber: number } {
-  const start = new Date("2026-06-04").getTime();
-  const now = new Date().getTime();
-  const daysSinceStart = Math.floor((now - start) / (1000 * 60 * 60 * 24));
+  const now = new Date();
+  const utcToday = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const startDay = Date.UTC(2026, 5, 4); // June 4 2026 (month is 0-indexed)
+  const daysSinceStart = Math.floor((utcToday - startDay) / (1000 * 60 * 60 * 24));
   const challengeNumber = daysSinceStart + 1;
   const shuffled = seededShuffle(LOCATIONS, daysSinceStart + 42);
   return { locations: shuffled.slice(0, ROUNDS_PER_DAY), challengeNumber };
