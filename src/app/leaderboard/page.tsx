@@ -41,12 +41,13 @@ export default function LeaderboardPage() {
             if (isSupabaseConfigured()) {
               try {
                 const supabase = createClient();
-                const { data: { user } } = await supabase.auth.getUser();
-                if (user) {
-                  name = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0] || "You";
-                  avatar = user.user_metadata?.avatar_url || null;
+                const { data: { session } } = await supabase.auth.getSession();
+                if (session?.user) {
+                  const u = session.user;
+                  name = u.user_metadata?.full_name || u.user_metadata?.name || u.email?.split("@")[0] || "You";
+                  avatar = u.user_metadata?.avatar_url || u.user_metadata?.picture || null;
                 }
-              } catch { /* ignore */ }
+              } catch (e) { console.error("Leaderboard auth:", e); }
             }
 
             results.push({
