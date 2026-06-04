@@ -2,16 +2,7 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
-
-function getSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return null;
-  return createSupabaseClient(url, key, {
-    auth: { flowType: "implicit", persistSession: true },
-  });
-}
+import { createClient } from "@/lib/supabase/client";
 import { Globe, Check, X, Loader2 } from "lucide-react";
 
 interface UsernameModalProps {
@@ -29,7 +20,7 @@ export default function UsernameModal({ userId, onComplete }: UsernameModalProps
   const checkAvailability = async (name: string) => {
     if (name.length < 3) { setAvailable(null); return; }
     setChecking(true);
-    const supabase = getSupabase();
+    const supabase = createClient();
     if (!supabase) return;
     const { data } = await supabase.from("profiles").select("id").eq("username", name).maybeSingle();
     setAvailable(!data || data.id === userId);
@@ -51,7 +42,7 @@ export default function UsernameModal({ userId, onComplete }: UsernameModalProps
     if (!available || username.length < 3) return;
     setSaving(true);
     setError(null);
-    const supabase = getSupabase();
+    const supabase = createClient();
     if (!supabase) return;
     const { error: err } = await supabase.from("profiles").update({ username }).eq("id", userId);
     if (err) {

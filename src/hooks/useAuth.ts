@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
 interface Profile {
   id: string;
@@ -21,30 +21,14 @@ interface AuthUser {
   user_metadata?: Record<string, string>;
 }
 
-function getSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return null;
-  return createSupabaseClient(url, key, {
-    auth: {
-      flowType: "implicit",
-      detectSessionInUrl: true,
-      persistSession: true,
-      autoRefreshToken: true,
-    },
-  });
-}
-
 export function useAuth() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const supabaseRef = useRef(getSupabase());
-
   useEffect(() => {
-    const supabase = supabaseRef.current;
-    if (!supabase) { setLoading(false); return; }
+    if (!isSupabaseConfigured()) { setLoading(false); return; }
+    const supabase = createClient();
 
     let mounted = true;
 
@@ -91,7 +75,7 @@ export function useAuth() {
   }, []);
 
   const signInWithEmail = useCallback(async (email: string, password: string) => {
-    const supabase = supabaseRef.current;
+    const supabase = createClient();
     if (!supabase) return;
     setError(null);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -99,7 +83,7 @@ export function useAuth() {
   }, []);
 
   const signUpWithEmail = useCallback(async (email: string, password: string, displayName: string) => {
-    const supabase = supabaseRef.current;
+    const supabase = createClient();
     if (!supabase) return;
     setError(null);
     const { error } = await supabase.auth.signUp({
@@ -110,7 +94,7 @@ export function useAuth() {
   }, []);
 
   const signInWithGoogle = useCallback(async () => {
-    const supabase = supabaseRef.current;
+    const supabase = createClient();
     if (!supabase) return;
     await supabase.auth.signInWithOAuth({
       provider: "google",
@@ -119,7 +103,7 @@ export function useAuth() {
   }, []);
 
   const signInWithDiscord = useCallback(async () => {
-    const supabase = supabaseRef.current;
+    const supabase = createClient();
     if (!supabase) return;
     await supabase.auth.signInWithOAuth({
       provider: "discord",
@@ -128,7 +112,7 @@ export function useAuth() {
   }, []);
 
   const signOut = useCallback(async () => {
-    const supabase = supabaseRef.current;
+    const supabase = createClient();
     if (!supabase) return;
     await supabase.auth.signOut();
     setUser(null);
