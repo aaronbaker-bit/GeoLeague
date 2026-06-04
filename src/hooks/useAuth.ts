@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
-import type { User } from "@supabase/supabase-js";
 
 interface Profile {
   id: string;
@@ -16,8 +15,14 @@ interface Profile {
   total_score: number;
 }
 
+interface AuthUser {
+  id: string;
+  email?: string;
+  user_metadata?: Record<string, string>;
+}
+
 export function useAuth() {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -25,24 +30,42 @@ export function useAuth() {
 
   useEffect(() => {
     if (!configured) { setLoading(false); return; }
-    const supabase = createClient();
 
-    const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
-      if (user) {
-        const { data } = await supabase.from("profiles").select("*").eq("id", user.id).single();
-        setProfile(data);
+    const loadUser = async () => {
+      try {
+        const supabase = createClient();
+        if (!supabase) { setLoading(false); return; }
+
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        setUser(authUser);
+
+        if (authUser) {
+          const { data, error: profileError } = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", authUser.id)
+            .single();
+          if (profileError) console.error("Profile fetch error:", profileError);
+          if (data) setProfile(data as Profile);
+        }
+      } catch (e) {
+        console.error("Auth error:", e);
       }
       setLoading(false);
     };
-    getUser();
+    loadUser();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        const { data } = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
-        setProfile(data);
+    const supabase = createClient();
+    if (!supabase) return;
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event: string, session: { user: AuthUser } | null) => {
+      const u = session?.user ?? null;
+      setUser(u);
+      if (u) {
+        try {
+          const { data } = await supabase.from("profiles").select("*").eq("id", u.id).single();
+          if (data) setProfile(data as Profile);
+        } catch (e) { console.error("Profile refresh error:", e); }
       } else {
         setProfile(null);
       }
@@ -68,7 +91,6 @@ export function useAuth() {
       options: { data: { full_name: displayName } },
     });
     if (error) setError(error.message);
-    else setError(null);
   }, [configured]);
 
   const signInWithGoogle = useCallback(async () => {
@@ -97,19 +119,11 @@ export function useAuth() {
     setProfile(null);
   }, [configured]);
 
-  const updateProfile = useCallback(async (updates: Partial<Profile>) => {
-    if (!configured || !user) return;
-    const supabase = createClient();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase as any).from("profiles").update(updates).eq("id", user.id);
-    setProfile((prev) => prev ? { ...prev, ...updates } : null);
-  }, [configured, user]);
-
   return {
     user, profile, loading, error,
     signInWithEmail, signUpWithEmail,
     signInWithGoogle, signInWithDiscord,
-    signOut, updateProfile,
+    signOut,
     isAuthenticated: !!user,
     isConfigured: configured,
   };
