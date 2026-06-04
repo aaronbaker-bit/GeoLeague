@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 
 interface Profile {
   id: string;
@@ -21,103 +21,119 @@ interface AuthUser {
   user_metadata?: Record<string, string>;
 }
 
+function getSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) return null;
+  return createSupabaseClient(url, key, {
+    auth: {
+      flowType: "implicit",
+      detectSessionInUrl: true,
+      persistSession: true,
+      autoRefreshToken: true,
+    },
+  });
+}
+
 export function useAuth() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const configured = isSupabaseConfigured();
+  const supabaseRef = useRef(getSupabase());
 
   useEffect(() => {
-    if (!configured) { setLoading(false); return; }
+    const supabase = supabaseRef.current;
+    if (!supabase) { setLoading(false); return; }
+
+    let mounted = true;
 
     const loadUser = async () => {
       try {
-        const supabase = createClient();
-        if (!supabase) { setLoading(false); return; }
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!mounted) return;
 
-        const { data: { user: authUser } } = await supabase.auth.getUser();
-        setUser(authUser);
-
-        if (authUser) {
-          const { data, error: profileError } = await supabase
+        if (session?.user) {
+          setUser(session.user as AuthUser);
+          const { data } = await supabase
             .from("profiles")
             .select("*")
-            .eq("id", authUser.id)
+            .eq("id", session.user.id)
             .single();
-          if (profileError) console.error("Profile fetch error:", profileError);
-          if (data) setProfile(data as Profile);
+          if (mounted && data) setProfile(data as Profile);
         }
       } catch (e) {
-        console.error("Auth error:", e);
+        console.error("useAuth load error:", e);
       }
-      setLoading(false);
+      if (mounted) setLoading(false);
     };
+
     loadUser();
 
-    const supabase = createClient();
-    if (!supabase) return;
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event: string, session: { user: AuthUser } | null) => {
-      const u = session?.user ?? null;
-      setUser(u);
-      if (u) {
-        try {
-          const { data } = await supabase.from("profiles").select("*").eq("id", u.id).single();
-          if (data) setProfile(data as Profile);
-        } catch (e) { console.error("Profile refresh error:", e); }
-      } else {
-        setProfile(null);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event: string, session: unknown) => {
+        if (!mounted) return;
+        const s = session as { user: AuthUser } | null;
+        const u = s?.user ?? null;
+        setUser(u);
+        if (u) {
+          try {
+            const { data } = await supabase.from("profiles").select("*").eq("id", u.id).single();
+            if (mounted && data) setProfile(data as Profile);
+          } catch {}
+        } else {
+          setProfile(null);
+        }
       }
-    });
+    );
 
-    return () => subscription.unsubscribe();
-  }, [configured]);
+    return () => { mounted = false; subscription.unsubscribe(); };
+  }, []);
 
   const signInWithEmail = useCallback(async (email: string, password: string) => {
-    if (!configured) return;
+    const supabase = supabaseRef.current;
+    if (!supabase) return;
     setError(null);
-    const supabase = createClient();
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) setError(error.message);
-  }, [configured]);
+  }, []);
 
   const signUpWithEmail = useCallback(async (email: string, password: string, displayName: string) => {
-    if (!configured) return;
+    const supabase = supabaseRef.current;
+    if (!supabase) return;
     setError(null);
-    const supabase = createClient();
     const { error } = await supabase.auth.signUp({
       email, password,
       options: { data: { full_name: displayName } },
     });
     if (error) setError(error.message);
-  }, [configured]);
+  }, []);
 
   const signInWithGoogle = useCallback(async () => {
-    if (!configured) return;
-    const supabase = createClient();
+    const supabase = supabaseRef.current;
+    if (!supabase) return;
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: `${window.location.origin}/auth/callback` },
     });
-  }, [configured]);
+  }, []);
 
   const signInWithDiscord = useCallback(async () => {
-    if (!configured) return;
-    const supabase = createClient();
+    const supabase = supabaseRef.current;
+    if (!supabase) return;
     await supabase.auth.signInWithOAuth({
       provider: "discord",
       options: { redirectTo: `${window.location.origin}/auth/callback` },
     });
-  }, [configured]);
+  }, []);
 
   const signOut = useCallback(async () => {
-    if (!configured) return;
-    const supabase = createClient();
+    const supabase = supabaseRef.current;
+    if (!supabase) return;
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);
-  }, [configured]);
+  }, []);
 
   return {
     user, profile, loading, error,
@@ -125,6 +141,5 @@ export function useAuth() {
     signInWithGoogle, signInWithDiscord,
     signOut,
     isAuthenticated: !!user,
-    isConfigured: configured,
   };
 }
