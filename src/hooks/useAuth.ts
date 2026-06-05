@@ -98,7 +98,7 @@ export function useAuth() {
     if (!supabase) return;
     await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/auth/callback` },
+      options: { redirectTo: `${window.location.origin}/play` },
     });
   }, []);
 
@@ -107,7 +107,7 @@ export function useAuth() {
     if (!supabase) return;
     await supabase.auth.signInWithOAuth({
       provider: "discord",
-      options: { redirectTo: `${window.location.origin}/auth/callback` },
+      options: { redirectTo: `${window.location.origin}/play` },
     });
   }, []);
 

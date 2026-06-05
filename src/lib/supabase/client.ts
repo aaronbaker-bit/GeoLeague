@@ -17,7 +17,6 @@ export function createClient(): any {
       detectSessionInUrl: true,
       persistSession: true,
       autoRefreshToken: true,
-      storageKey: "geoleague-auth",
     },
   });
   return _client;
