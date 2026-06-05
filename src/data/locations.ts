@@ -428,5 +428,16 @@ export function getDailyLocations(): { locations: Location[]; challengeNumber: n
   const daysSinceStart = Math.floor((utcToday - startDay) / (1000 * 60 * 60 * 24));
   const challengeNumber = daysSinceStart + 1;
   const shuffled = seededShuffle(LOCATIONS, daysSinceStart + 42);
-  return { locations: shuffled.slice(0, ROUNDS_PER_DAY), challengeNumber };
+
+  // Pick 6 locations from different countries
+  const picked: Location[] = [];
+  const usedCountries = new Set<string>();
+  for (const loc of shuffled) {
+    if (usedCountries.has(loc.country)) continue;
+    usedCountries.add(loc.country);
+    picked.push(loc);
+    if (picked.length >= ROUNDS_PER_DAY) break;
+  }
+
+  return { locations: picked, challengeNumber };
 }
