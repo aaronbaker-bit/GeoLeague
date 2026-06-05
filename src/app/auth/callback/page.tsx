@@ -14,29 +14,35 @@ export default function AuthCallbackPage() {
       return;
     }
 
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get("code");
-
-    if (code) {
-      supabase.auth.exchangeCodeForSession(code).then(
-        ({ error: err }: { error: { message: string } | null }) => {
-          if (err) {
-            console.error("Auth callback error:", err.message);
-            setError(err.message);
-          } else {
-            window.location.href = "/play";
-          }
+    // With implicit flow, the access token is in the URL hash.
+    // createClient with detectSessionInUrl:true automatically picks it up
+    // and fires onAuthStateChange with SIGNED_IN.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event: string) => {
+        if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+          window.location.href = "/play";
         }
-      );
-    } else {
-      supabase.auth.getUser().then(({ data }: { data: { user: unknown } }) => {
-        if (data.user) {
+      }
+    );
+
+    // Fallback: if already signed in or hash was already processed
+    const timer = setTimeout(async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
           window.location.href = "/play";
         } else {
-          setError("No authentication code found");
+          setError("Sign in timed out. Please try again.");
         }
-      });
-    }
+      } catch {
+        setError("Sign in failed. Please try again.");
+      }
+    }, 5000);
+
+    return () => {
+      subscription.unsubscribe();
+      clearTimeout(timer);
+    };
   }, []);
 
   if (error) {

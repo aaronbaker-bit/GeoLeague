@@ -34,15 +34,15 @@ export function useAuth() {
 
     const loadUser = async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { session } } = await supabase.auth.getSession();
         if (!mounted) return;
 
-        if (user) {
-          setUser(user as AuthUser);
+        if (session?.user) {
+          setUser(session.user as AuthUser);
           const { data } = await supabase
             .from("profiles")
             .select("*")
-            .eq("id", user.id)
+            .eq("id", session.user.id)
             .single();
           if (mounted && data) setProfile(data as Profile);
         }
