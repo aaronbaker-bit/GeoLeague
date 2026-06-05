@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
-import { createClient, isSupabaseConfigured, detectAndSetSessionFromHash } from "@/lib/supabase/client";
+import { useEffect, useState, useCallback } from "react";
+import { createClient, isSupabaseConfigured, initAuth, clearStoredTokens, saveTokens } from "@/lib/supabase/client";
 
 interface Profile {
   id: string;
@@ -30,48 +30,51 @@ export function useAuth() {
   useEffect(() => {
     if (!isSupabaseConfigured()) { setLoading(false); return; }
     const supabase = createClient();
-
     let mounted = true;
 
-    const loadUser = async () => {
+    const loadProfile = async (userId: string) => {
       try {
-        // First, check if there are tokens in the URL hash (OAuth redirect)
-        await detectAndSetSessionFromHash();
-
-        // Now get the session (from localStorage or just-set from hash)
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!mounted) return;
-
-        if (session?.user) {
-          setUser(session.user as AuthUser);
-          const { data } = await supabase
-            .from("profiles")
-            .select("*")
-            .eq("id", session.user.id)
-            .single();
-          if (mounted && data) setProfile(data as Profile);
-        }
-      } catch (e) {
-        console.error("useAuth load error:", e);
-      }
-      if (mounted) setLoading(false);
+        const { data } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", userId)
+          .single();
+        if (mounted && data) setProfile(data as Profile);
+      } catch {}
     };
 
-    loadUser();
+    const startup = async () => {
+      // Initialize auth (restores from localStorage or detects hash tokens)
+      await initAuth();
 
+      // Now get the session — it's guaranteed to be set if tokens were valid
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!mounted) return;
+
+      if (session?.user) {
+        setUser(session.user as AuthUser);
+        loadProfile(session.user.id);
+      }
+      setLoading(false);
+    };
+
+    startup();
+
+    // Listen for auth changes (sign in, sign out, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event: string, session: unknown) => {
         if (!mounted) return;
-        const s = session as { user: AuthUser } | null;
+        const s = session as { user: AuthUser; access_token: string; refresh_token: string } | null;
         const u = s?.user ?? null;
         setUser(u);
-        if (u) {
-          try {
-            const { data } = await supabase.from("profiles").select("*").eq("id", u.id).single();
-            if (mounted && data) setProfile(data as Profile);
-          } catch {}
-        } else {
+
+        if (u && s) {
+          // Save refreshed tokens
+          saveTokens(s.access_token, s.refresh_token);
+          loadProfile(u.id);
+        } else if (event === "SIGNED_OUT") {
           setProfile(null);
+          clearStoredTokens();
         }
       }
     );
@@ -119,6 +122,7 @@ export function useAuth() {
   const signOut = useCallback(async () => {
     const supabase = createClient();
     if (!supabase) return;
+    clearStoredTokens();
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);
