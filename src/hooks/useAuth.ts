@@ -34,7 +34,27 @@ export function useAuth() {
 
     const loadUser = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        let { data: { session } } = await supabase.auth.getSession();
+
+        // If no session, try to recover from our manual backup
+        if (!session && typeof window !== "undefined") {
+          try {
+            const backup = localStorage.getItem("geoleague-session-backup");
+            if (backup) {
+              const { access_token, refresh_token } = JSON.parse(backup);
+              const { data, error } = await supabase.auth.setSession({
+                access_token,
+                refresh_token,
+              });
+              if (!error && data.session) {
+                session = data.session;
+              } else {
+                localStorage.removeItem("geoleague-session-backup");
+              }
+            }
+          } catch {}
+        }
+
         if (!mounted) return;
 
         if (session?.user) {
