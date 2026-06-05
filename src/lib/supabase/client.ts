@@ -11,41 +11,49 @@ export function createClient(): any {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !key) return null;
-
-  // Explicitly pass localStorage to ensure persistence works in Next.js
-  const storage = typeof window !== "undefined" ? window.localStorage : undefined;
-
   _client = createSupabaseClient(url, key, {
     auth: {
       flowType: "implicit",
-      detectSessionInUrl: true,
+      detectSessionInUrl: false, // We handle this manually
       persistSession: true,
       autoRefreshToken: true,
-      storage,
+      storage: typeof window !== "undefined" ? window.localStorage : undefined,
     },
   });
+  return _client;
+}
 
-  // Belt & suspenders: manually persist session on auth state changes
-  // This catches cases where Supabase's built-in persistence silently fails
-  if (typeof window !== "undefined") {
-    _client.auth.onAuthStateChange(
-      (event: string, session: { access_token: string; refresh_token: string } | null) => {
-        if (session && (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "INITIAL_SESSION")) {
-          try {
-            localStorage.setItem("geoleague-session-backup", JSON.stringify({
-              access_token: session.access_token,
-              refresh_token: session.refresh_token,
-            }));
-          } catch {}
-        }
-        if (event === "SIGNED_OUT") {
-          try { localStorage.removeItem("geoleague-session-backup"); } catch {}
-        }
-      }
-    );
+/**
+ * Manually detect and set session from URL hash (implicit flow).
+ * Call this once on app load. Returns true if a session was found in the hash.
+ */
+export async function detectAndSetSessionFromHash(): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+
+  const hash = window.location.hash;
+  if (!hash || !hash.includes("access_token")) return false;
+
+  // Parse hash params
+  const params = new URLSearchParams(hash.substring(1));
+  const access_token = params.get("access_token");
+  const refresh_token = params.get("refresh_token");
+
+  if (!access_token || !refresh_token) return false;
+
+  const supabase = createClient();
+  if (!supabase) return false;
+
+  const { error } = await supabase.auth.setSession({
+    access_token,
+    refresh_token,
+  });
+
+  // Clear the hash from the URL to avoid re-processing
+  if (!error) {
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
   }
 
-  return _client;
+  return !error;
 }
 
 export function isSupabaseConfigured(): boolean {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { createClient, isSupabaseConfigured, detectAndSetSessionFromHash } from "@/lib/supabase/client";
 
 interface Profile {
   id: string;
@@ -26,6 +26,7 @@ export function useAuth() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!isSupabaseConfigured()) { setLoading(false); return; }
     const supabase = createClient();
@@ -34,27 +35,11 @@ export function useAuth() {
 
     const loadUser = async () => {
       try {
-        let { data: { session } } = await supabase.auth.getSession();
+        // First, check if there are tokens in the URL hash (OAuth redirect)
+        await detectAndSetSessionFromHash();
 
-        // If no session, try to recover from our manual backup
-        if (!session && typeof window !== "undefined") {
-          try {
-            const backup = localStorage.getItem("geoleague-session-backup");
-            if (backup) {
-              const { access_token, refresh_token } = JSON.parse(backup);
-              const { data, error } = await supabase.auth.setSession({
-                access_token,
-                refresh_token,
-              });
-              if (!error && data.session) {
-                session = data.session;
-              } else {
-                localStorage.removeItem("geoleague-session-backup");
-              }
-            }
-          } catch {}
-        }
-
+        // Now get the session (from localStorage or just-set from hash)
+        const { data: { session } } = await supabase.auth.getSession();
         if (!mounted) return;
 
         if (session?.user) {
