@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Globe, BarChart3, Users, Settings, X, Flame, Trophy, Target, User, Search, UserPlus, Check, Loader2, LogOut } from "lucide-react";
+import { Globe, BarChart3, Users, Settings, X, Flame, Trophy, Target, User, Search, UserPlus, Check, Loader2, LogOut, Sun, Moon } from "lucide-react";
+import { useTheme } from "@/components/ThemeProvider";
 import AuthButton from "@/components/auth/AuthButton";
 import UsernameModal from "@/components/auth/UsernameModal";
 import { useAuth } from "@/hooks/useAuth";
@@ -362,6 +363,7 @@ function SettingsModal({ onClose, username }: { onClose: () => void; username?: 
               <div className="text-sm font-medium text-white">@{username}</div>
             </div>
           )}
+          <ThemeToggle />
           <div>
             <label className="text-xs uppercase tracking-widest text-zinc-500 mb-3 block">Your Stats</label>
             <div className="grid grid-cols-2 gap-3">
@@ -452,6 +454,23 @@ function StatBox({ icon, label, value }: { icon: React.ReactNode; label: string;
     <div className="p-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50">
       <div className="flex items-center gap-2 text-zinc-500 mb-1">{icon}<span className="text-[10px] uppercase tracking-widest">{label}</span></div>
       <div className="text-lg font-bold text-white">{value}</div>
+    </div>
+  );
+}
+
+function ThemeToggle() {
+  const { theme, toggle } = useTheme();
+  return (
+    <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-800/50 border border-zinc-700/50">
+      <div className="flex items-center gap-2">
+        {theme === "dark" ? <Moon size={16} className="text-zinc-400" /> : <Sun size={16} className="text-amber-400" />}
+        <span className="text-sm text-zinc-300">{theme === "dark" ? "Dark Mode" : "Light Mode"}</span>
+      </div>
+      <button onClick={toggle}
+        className="relative w-11 h-6 rounded-full bg-zinc-700 transition-colors"
+        style={{ backgroundColor: theme === "light" ? "#7c3aed" : undefined }}>
+        <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${theme === "light" ? "translate-x-5" : "translate-x-0.5"}`} />
+      </button>
     </div>
   );
 }
