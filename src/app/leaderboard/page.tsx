@@ -15,6 +15,7 @@ interface LeaderboardEntry {
   score: number;
   rank: number;
   isYou?: boolean;
+  time_ms?: number;
 }
 
 export default function LeaderboardPage() {
@@ -32,77 +33,125 @@ export default function LeaderboardPage() {
 
     async function loadEntries() {
       setLoading(true);
+      const supabase = createClient();
 
-      if (tab === "daily" || tab === "weekly") {
+      // Get current user ID
+      let currentUserId: string | null = null;
+      if (supabase) {
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          currentUserId = session?.user?.id || null;
+        } catch {}
+      }
+
+      if (tab === "daily") {
+        if (supabase) {
+          try {
+            const { data } = await supabase
+              .from("daily_leaderboard")
+              .select("user_id, display_name, avatar_url, score, time_ms, rank")
+              .order("rank", { ascending: true })
+              .limit(50);
+
+            if (!cancelled && data && data.length > 0) {
+              setEntries(data.map((row: { user_id: string; display_name: string | null; avatar_url: string | null; score: number; time_ms: number | null; rank: number }) => ({
+                id: row.user_id,
+                display_name: row.display_name || "Player",
+                avatar_url: row.avatar_url,
+                score: row.score,
+                rank: Number(row.rank),
+                time_ms: row.time_ms || undefined,
+                isYou: row.user_id === currentUserId,
+              })));
+              if (!cancelled) setLoading(false);
+              return;
+            }
+          } catch {}
+        }
+
+        // Fallback to localStorage
         try {
           const stored = localStorage.getItem("geoleague_daily_v2");
           if (stored) {
             const parsed = JSON.parse(stored);
             const today = new Date().toISOString().split("T")[0];
             if (parsed.date === today && parsed.status === "completed") {
-              let name = "You";
-              let avatar: string | null = null;
-
-              const supabase = createClient();
-              if (supabase) {
-                try {
-                  const { data: { user } } = await supabase.auth.getUser();
-                  if (user) {
-                    name = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0] || "You";
-                    avatar = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
-                  }
-                } catch {}
-              }
-
               if (!cancelled) {
                 setEntries([{
-                  id: "you",
-                  display_name: name,
-                  avatar_url: avatar,
-                  score: parsed.totalScore,
-                  rank: 1,
-                  isYou: true,
+                  id: "you", display_name: "You", avatar_url: null,
+                  score: parsed.totalScore, rank: 1, isYou: true,
                 }]);
-                setLoading(false);
               }
-              return;
             }
           }
         } catch {}
-
-        if (!cancelled) {
-          setEntries([]);
-          setLoading(false);
-        }
+        if (!cancelled) setLoading(false);
         return;
       }
 
       if (tab === "alltime") {
-        const supabase = createClient();
         if (supabase) {
           try {
             const { data } = await supabase
               .from("profiles")
-              .select("id, display_name, avatar_url, elo_rating")
+              .select("id, display_name, avatar_url, total_score, total_games")
               .gt("total_games", 0)
-              .order("elo_rating", { ascending: false })
+              .order("total_score", { ascending: false })
               .limit(50);
 
             if (!cancelled && data && data.length > 0) {
-              setEntries(data.map((p: { id: string; display_name: string | null; avatar_url: string | null; elo_rating: number }, i: number) => ({
+              setEntries(data.map((p: { id: string; display_name: string | null; avatar_url: string | null; total_score: number }, i: number) => ({
                 id: p.id,
                 display_name: p.display_name || "Player",
                 avatar_url: p.avatar_url,
-                score: p.elo_rating,
+                score: p.total_score,
                 rank: i + 1,
+                isYou: p.id === currentUserId,
               })));
             }
           } catch {}
         }
-
         if (!cancelled) setLoading(false);
         return;
       }
+
+      // Weekly tab - sum scores from last 7 days
+      if (tab === "weekly" && supabase) {
+        try {
+          const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+          const { data } = await supabase
+            .from("game_results")
+            .select("user_id, score, profiles(display_name, avatar_url)")
+            .gte("completed_at", sevenDaysAgo);
+
+          if (!cancelled && data && data.length > 0) {
+            // Aggregate scores by user
+            const userScores = new Map<string, { score: number; display_name: string; avatar_url: string | null }>();
+            for (const row of data as { user_id: string; score: number; profiles: { display_name: string | null; avatar_url: string | null } | null }[]) {
+              const existing = userScores.get(row.user_id);
+              if (existing) {
+                existing.score += row.score;
+              } else {
+                userScores.set(row.user_id, {
+                  score: row.score,
+                  display_name: row.profiles?.display_name || "Player",
+                  avatar_url: row.profiles?.avatar_url || null,
+                });
+              }
+            }
+            const sorted = [...userScores.entries()].sort((a, b) => b[1].score - a[1].score);
+            setEntries(sorted.map(([uid, info], i) => ({
+              id: uid,
+              display_name: info.display_name,
+              avatar_url: info.avatar_url,
+              score: info.score,
+              rank: i + 1,
+              isYou: uid === currentUserId,
+            })));
+          }
+        } catch {}
+      }
+      if (!cancelled) setLoading(false);
     }
 
     loadEntries();
@@ -136,8 +185,8 @@ export default function LeaderboardPage() {
           ) : entries.length === 0 ? (
             <div className="text-center py-16">
               <Globe className="w-12 h-12 mx-auto text-zinc-700 mb-4" />
-              <h3 className="text-lg font-medium text-zinc-400 mb-2">No scores yet today</h3>
-              <p className="text-sm text-zinc-600 mb-6">Be the first to complete today&apos;s challenge!</p>
+              <h3 className="text-lg font-medium text-zinc-400 mb-2">No scores yet {tab === "daily" ? "today" : tab === "weekly" ? "this week" : ""}</h3>
+              <p className="text-sm text-zinc-600 mb-6">Be the first to complete {tab === "daily" ? "today's" : "a"} challenge!</p>
               <Link href="/play" className="inline-flex items-center gap-2 px-6 py-3 bg-violet-600 hover:bg-violet-500 text-white font-medium rounded-xl transition-colors">Play Now</Link>
             </div>
           ) : (
@@ -169,10 +218,15 @@ export default function LeaderboardPage() {
                       {entry.display_name}
                       {entry.isYou && <span className="text-xs text-violet-400 ml-2">(you)</span>}
                     </div>
+                    {entry.time_ms && tab === "daily" && (
+                      <div className="text-xs text-zinc-500">{Math.round(entry.time_ms / 1000)}s</div>
+                    )}
                   </div>
                   <div className="text-right">
                     <div className="text-lg font-bold text-white tabular-nums">{entry.score}</div>
-                    <div className="text-[10px] uppercase tracking-wider text-zinc-500">{tab === "alltime" ? "ELO" : "pts"}</div>
+                    <div className="text-[10px] uppercase tracking-wider text-zinc-500">
+                      {tab === "alltime" ? "total" : tab === "weekly" ? "week" : "pts"}
+                    </div>
                   </div>
                 </motion.div>
               ))}

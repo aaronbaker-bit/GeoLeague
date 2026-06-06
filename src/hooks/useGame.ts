@@ -36,7 +36,14 @@ function scoreGuess(distanceKm: number): number {
 /**
  * Save completed game results to Supabase profiles table.
  */
-async function syncGameToDatabase(totalScore: number, streak: number) {
+async function syncGameToDatabase(
+  totalScore: number,
+  streak: number,
+  challengeNumber: number,
+  rounds: RoundResult[],
+  startTime: number,
+  locs: Location[],
+) {
   if (!isSupabaseConfigured()) return;
   const supabase = createClient();
   if (!supabase) return;
@@ -46,30 +53,77 @@ async function syncGameToDatabase(totalScore: number, streak: number) {
     if (!session?.user) return;
 
     const userId = session.user.id;
+    const todayDate = new Date().toISOString().split("T")[0];
+    const firstLoc = locs[0];
 
-    // Get current profile
+    // 1. Upsert daily_challenges for today
+    const { data: challenge } = await supabase
+      .from("daily_challenges")
+      .upsert({
+        challenge_number: challengeNumber,
+        date: todayDate,
+        location_id: firstLoc.id,
+        location_name: firstLoc.name,
+        lat: firstLoc.lat,
+        lng: firstLoc.lng,
+        country: firstLoc.country,
+        continent: firstLoc.continent,
+        category: firstLoc.category,
+        difficulty: firstLoc.difficulty,
+        hints: firstLoc.hints,
+      }, { onConflict: "date" })
+      .select("id")
+      .single();
+
+    if (!challenge) return;
+
+    // 2. Check if already saved
+    const { data: existing } = await supabase
+      .from("game_results")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("challenge_id", challenge.id)
+      .maybeSingle();
+
+    if (existing) return;
+
+    // 3. Save game result
+    const guessesData = rounds.map(r => ({
+      location: r.location.name,
+      lat: r.guess.lat,
+      lng: r.guess.lng,
+      distanceKm: r.guess.distanceKm,
+      score: r.score,
+    }));
+    const bestDistance = Math.min(...rounds.map(r => r.guess.distanceKm));
+    const timeMs = Date.now() - startTime;
+
+    await supabase.from("game_results").insert({
+      user_id: userId,
+      challenge_id: challenge.id,
+      challenge_number: challengeNumber,
+      score: totalScore,
+      guesses: guessesData,
+      time_ms: timeMs,
+      best_distance_km: bestDistance,
+    });
+
+    // 4. Update profile stats
     const { data: profile } = await supabase
       .from("profiles")
       .select("total_games, total_score, current_streak, longest_streak")
       .eq("id", userId)
       .single();
 
-    if (!profile) return;
-
-    const newTotalGames = (profile.total_games || 0) + 1;
-    const newTotalScore = (profile.total_score || 0) + totalScore;
-    const newLongestStreak = Math.max(profile.longest_streak || 0, streak);
-
-    await supabase
-      .from("profiles")
-      .update({
-        total_games: newTotalGames,
-        total_score: newTotalScore,
+    if (profile) {
+      await supabase.from("profiles").update({
+        total_games: (profile.total_games || 0) + 1,
+        total_score: (profile.total_score || 0) + totalScore,
         current_streak: streak,
-        longest_streak: newLongestStreak,
+        longest_streak: Math.max(profile.longest_streak || 0, streak),
         updated_at: new Date().toISOString(),
-      })
-      .eq("id", userId);
+      }).eq("id", userId);
+    }
   } catch (e) {
     console.error("Failed to sync game to database:", e);
   }
@@ -136,7 +190,7 @@ export function useGame() {
     } catch {}
 
     syncedRef.current = true;
-    syncGameToDatabase(state.totalScore, newStreak);
+    syncGameToDatabase(state.totalScore, newStreak, challengeNumber, state.rounds, state.startTime, locations);
   }, [state.status, todayKey, state.totalScore]);
 
   const currentLocation = locations[state.currentRound] || locations[locations.length - 1];
