@@ -41,7 +41,7 @@ export default function LeaderboardPage() {
   const { challengeNumber } = getDailyLocation();
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"daily" | "weekly" | "alltime">("daily");
+  const [tab, setTab] = useState<"daily" | "weekly" | "friends" | "alltime">("daily");
 
   const streak = typeof window !== "undefined"
     ? parseInt(localStorage.getItem("geoleague_streak") || "0", 10)
@@ -152,6 +152,74 @@ export default function LeaderboardPage() {
         return;
       }
 
+      if (tab === "friends" && supabase && currentUserId) {
+        try {
+          // Get friend IDs
+          const { data: friendships } = await supabase
+            .from("friendships")
+            .select("user_id, friend_id")
+            .eq("status", "accepted");
+
+          if (friendships && friendships.length > 0) {
+            const friendIds = new Set<string>();
+            for (const f of friendships as { user_id: string; friend_id: string }[]) {
+              if (f.user_id === currentUserId) friendIds.add(f.friend_id);
+              if (f.friend_id === currentUserId) friendIds.add(f.user_id);
+            }
+            friendIds.add(currentUserId); // Include yourself
+
+            // Get all friends' profiles
+            const allIds = [...friendIds];
+            const profiles = await fetchProfiles(supabase, allIds);
+
+            // Get today's scores from daily_leaderboard
+            const { data: dailyData } = await supabase
+              .from("daily_leaderboard")
+              .select("user_id, score, time_ms, rank")
+              .in("user_id", allIds);
+
+            if (!cancelled && dailyData && dailyData.length > 0) {
+              const sorted = (dailyData as { user_id: string; score: number; time_ms: number | null; rank: number }[])
+                .sort((a, b) => b.score - a.score || (a.time_ms || 0) - (b.time_ms || 0));
+
+              setEntries(sorted.map((row, i) => {
+                const p = profiles.get(row.user_id);
+                return {
+                  id: row.user_id,
+                  display_name: p?.display_name || "Player",
+                  avatar_url: p?.avatar_url || null,
+                  score: row.score,
+                  rank: i + 1,
+                  time_ms: row.time_ms || undefined,
+                  isYou: row.user_id === currentUserId,
+                };
+              }));
+            } else if (!cancelled) {
+              // No daily scores — show friends' all-time scores instead
+              const { data: friendProfiles } = await supabase
+                .from("profiles")
+                .select("id, display_name, avatar_url, total_score, total_games")
+                .in("id", allIds)
+                .gt("total_games", 0)
+                .order("total_score", { ascending: false });
+
+              if (friendProfiles && friendProfiles.length > 0) {
+                setEntries(friendProfiles.map((p: { id: string; display_name: string | null; avatar_url: string | null; total_score: number }, i: number) => ({
+                  id: p.id,
+                  display_name: p.display_name || "Player",
+                  avatar_url: p.avatar_url,
+                  score: p.total_score,
+                  rank: i + 1,
+                  isYou: p.id === currentUserId,
+                })));
+              }
+            }
+          }
+        } catch {}
+        if (!cancelled) setLoading(false);
+        return;
+      }
+
       if (tab === "alltime" && supabase) {
         try {
           const { data } = await supabase
@@ -195,10 +263,10 @@ export default function LeaderboardPage() {
           </div>
 
           <div className="flex gap-1 p-1 bg-zinc-900 rounded-xl mb-6">
-            {(["daily", "weekly", "alltime"] as const).map((t) => (
+            {(["daily", "weekly", "friends", "alltime"] as const).map((t) => (
               <button key={t} onClick={() => setTab(t)}
                 className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${tab === t ? "bg-zinc-800 text-white" : "text-zinc-500 hover:text-zinc-300"}`}>
-                {t === "daily" ? "Today" : t === "weekly" ? "This Week" : "All Time"}
+                {t === "daily" ? "Today" : t === "weekly" ? "Week" : t === "friends" ? "Friends" : "All Time"}
               </button>
             ))}
           </div>
@@ -210,8 +278,12 @@ export default function LeaderboardPage() {
           ) : entries.length === 0 ? (
             <div className="text-center py-16">
               <Globe className="w-12 h-12 mx-auto text-zinc-700 mb-4" />
-              <h3 className="text-lg font-medium text-zinc-400 mb-2">No scores yet {tab === "daily" ? "today" : tab === "weekly" ? "this week" : ""}</h3>
-              <p className="text-sm text-zinc-600 mb-6">Be the first to complete {tab === "daily" ? "today's" : "a"} challenge!</p>
+              <h3 className="text-lg font-medium text-zinc-400 mb-2">
+                {tab === "friends" ? "No friend scores yet" : `No scores yet ${tab === "daily" ? "today" : tab === "weekly" ? "this week" : ""}`}
+              </h3>
+              <p className="text-sm text-zinc-600 mb-6">
+                {tab === "friends" ? "Add friends and play today's challenge!" : `Be the first to complete ${tab === "daily" ? "today's" : "a"} challenge!`}
+              </p>
               <Link href="/play" className="inline-flex items-center gap-2 px-6 py-3 bg-violet-600 hover:bg-violet-500 text-white font-medium rounded-xl transition-colors">Play Now</Link>
             </div>
           ) : (
