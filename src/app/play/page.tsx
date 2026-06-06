@@ -102,8 +102,18 @@ export default function PlayPage() {
                 <div className="text-xl font-bold text-white">
                   📍 {currentLocation.name}, {currentLocation.country}
                 </div>
-                <div className="text-xs text-zinc-500 mt-1">
-                  {currentLocation.category} · {currentLocation.difficulty}
+                <div className="text-xs text-zinc-500 mt-1 flex items-center justify-center gap-2">
+                  <span className="capitalize">{currentLocation.category}</span>
+                  <span>·</span>
+                  <span className={
+                    currentLocation.difficulty === "easy" ? "text-green-400" :
+                    currentLocation.difficulty === "medium" ? "text-yellow-400" :
+                    currentLocation.difficulty === "hard" ? "text-orange-400" : "text-red-400"
+                  }>
+                    {currentLocation.difficulty === "easy" ? "★" :
+                     currentLocation.difficulty === "medium" ? "★★" :
+                     currentLocation.difficulty === "hard" ? "★★★" : "★★★★"}
+                  </span>
                 </div>
               </div>
             </motion.div>

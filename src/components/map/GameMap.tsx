@@ -268,22 +268,66 @@ export default function GameMap({
         .addTo(map.current!);
       markersRef.current.push(marker);
 
-      // Dashed line from guess to target
-      if (guesses.length > 0) {
+      // Animated fly from guess to target with growing line
+      if (guesses.length > 0 && map.current) {
         const lastGuess = guesses[guesses.length - 1];
-        addDashedLine(
-          map.current,
-          "round",
-          [lastGuess.lng, lastGuess.lat],
-          [targetLng, targetLat],
-          "#ef4444"
-        );
+        const heat = getHeatLevel(lastGuess.distanceKm);
+        const lineColor = HEAT_COLORS[heat];
+        const m = map.current;
 
-        // Fit bounds to show both
-        const bounds = new maplibregl.LngLatBounds();
-        bounds.extend([lastGuess.lng, lastGuess.lat]);
-        bounds.extend([targetLng, targetLat]);
-        map.current?.fitBounds(bounds, { padding: 100, duration: 1000 });
+        // Step 1: Quick zoom to guess pin
+        m.flyTo({
+          center: [lastGuess.lng, lastGuess.lat],
+          zoom: Math.min(m.getZoom() + 1, 6),
+          duration: 500,
+        });
+
+        // Step 2: Animate line growing from guess to target
+        setTimeout(() => {
+          if (!m) return;
+          const from: [number, number] = [lastGuess.lng, lastGuess.lat];
+          const to: [number, number] = [targetLng, targetLat];
+          const steps = 30;
+          let step = 0;
+
+          const sourceId = "line-round-anim";
+          const layerId = "line-round-anim";
+
+          if (m.getSource(sourceId)) {
+            try { m.removeLayer(layerId); } catch {}
+            try { m.removeSource(sourceId); } catch {}
+          }
+
+          m.addSource(sourceId, {
+            type: "geojson",
+            data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [from, from] } },
+          });
+          m.addLayer({
+            id: layerId, type: "line", source: sourceId,
+            layout: { "line-cap": "round" },
+            paint: { "line-color": lineColor, "line-width": 3, "line-opacity": 0.9 },
+          });
+
+          const animateLine = () => {
+            step++;
+            const t = step / steps;
+            const cur: [number, number] = [from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t];
+            const source = m.getSource(sourceId) as maplibregl.GeoJSONSource;
+            if (source) {
+              source.setData({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [from, cur] } });
+            }
+            if (step < steps) requestAnimationFrame(animateLine);
+          };
+          animateLine();
+
+          // Step 3: Fly to show both pins
+          setTimeout(() => {
+            const bounds = new maplibregl.LngLatBounds();
+            bounds.extend(from);
+            bounds.extend(to);
+            m.fitBounds(bounds, { padding: 100, duration: 800 });
+          }, 600);
+        }, 600);
       }
     }
   }, [guesses, showTarget, targetLat, targetLng, mapReady, isGameComplete]);
