@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { initAuth } from "@/lib/supabase/client";
 import { getDailyLocation } from "@/data/locations";
 import Header from "@/components/layout/Header";
 import { motion } from "framer-motion";
@@ -16,6 +17,24 @@ interface LeaderboardEntry {
   rank: number;
   isYou?: boolean;
   time_ms?: number;
+}
+
+// Fetch profiles for a list of user IDs
+async function fetchProfiles(supabase: ReturnType<typeof createClient>, userIds: string[]): Promise<Map<string, { display_name: string; avatar_url: string | null }>> {
+  const map = new Map<string, { display_name: string; avatar_url: string | null }>();
+  if (!supabase || userIds.length === 0) return map;
+  try {
+    const { data } = await supabase
+      .from("profiles")
+      .select("id, display_name, avatar_url")
+      .in("id", userIds);
+    if (data) {
+      for (const p of data as { id: string; display_name: string | null; avatar_url: string | null }[]) {
+        map.set(p.id, { display_name: p.display_name || "Player", avatar_url: p.avatar_url });
+      }
+    }
+  } catch {}
+  return map;
 }
 
 export default function LeaderboardPage() {
@@ -33,9 +52,11 @@ export default function LeaderboardPage() {
 
     async function loadEntries() {
       setLoading(true);
-      const supabase = createClient();
 
-      // Get current user ID
+      // Ensure auth is initialized before any queries
+      await initAuth();
+
+      const supabase = createClient();
       let currentUserId: string | null = null;
       if (supabase) {
         try {
@@ -69,18 +90,22 @@ export default function LeaderboardPage() {
           } catch {}
         }
 
-        // Fallback to localStorage
+        // Fallback: show local score with actual user info
         try {
           const stored = localStorage.getItem("geoleague_daily_v2");
           if (stored) {
             const parsed = JSON.parse(stored);
             const today = new Date().toISOString().split("T")[0];
             if (parsed.date === today && parsed.status === "completed") {
+              let name = "You";
+              let avatar: string | null = null;
+              if (supabase && currentUserId) {
+                const profiles = await fetchProfiles(supabase, [currentUserId]);
+                const p = profiles.get(currentUserId);
+                if (p) { name = p.display_name; avatar = p.avatar_url; }
+              }
               if (!cancelled) {
-                setEntries([{
-                  id: "you", display_name: "You", avatar_url: null,
-                  score: parsed.totalScore, rank: 1, isYou: true,
-                }]);
+                setEntries([{ id: currentUserId || "you", display_name: name, avatar_url: avatar, score: parsed.totalScore, rank: 1, isYou: true }]);
               }
             }
           }
@@ -89,68 +114,67 @@ export default function LeaderboardPage() {
         return;
       }
 
-      if (tab === "alltime") {
-        if (supabase) {
-          try {
-            const { data } = await supabase
-              .from("profiles")
-              .select("id, display_name, avatar_url, total_score, total_games")
-              .gt("total_games", 0)
-              .order("total_score", { ascending: false })
-              .limit(50);
-
-            if (!cancelled && data && data.length > 0) {
-              setEntries(data.map((p: { id: string; display_name: string | null; avatar_url: string | null; total_score: number }, i: number) => ({
-                id: p.id,
-                display_name: p.display_name || "Player",
-                avatar_url: p.avatar_url,
-                score: p.total_score,
-                rank: i + 1,
-                isYou: p.id === currentUserId,
-              })));
-            }
-          } catch {}
-        }
-        if (!cancelled) setLoading(false);
-        return;
-      }
-
-      // Weekly tab - sum scores from last 7 days
       if (tab === "weekly" && supabase) {
         try {
           const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+          // Simple query — no joins, just get scores
           const { data } = await supabase
             .from("game_results")
-            .select("user_id, score, profiles(display_name, avatar_url)")
+            .select("user_id, score")
             .gte("completed_at", sevenDaysAgo);
 
           if (!cancelled && data && data.length > 0) {
-            // Aggregate scores by user
-            const userScores = new Map<string, { score: number; display_name: string; avatar_url: string | null }>();
-            for (const row of data as { user_id: string; score: number; profiles: { display_name: string | null; avatar_url: string | null } | null }[]) {
-              const existing = userScores.get(row.user_id);
-              if (existing) {
-                existing.score += row.score;
-              } else {
-                userScores.set(row.user_id, {
-                  score: row.score,
-                  display_name: row.profiles?.display_name || "Player",
-                  avatar_url: row.profiles?.avatar_url || null,
-                });
-              }
+            // Aggregate by user
+            const userScores = new Map<string, number>();
+            for (const row of data as { user_id: string; score: number }[]) {
+              userScores.set(row.user_id, (userScores.get(row.user_id) || 0) + row.score);
             }
-            const sorted = [...userScores.entries()].sort((a, b) => b[1].score - a[1].score);
-            setEntries(sorted.map(([uid, info], i) => ({
-              id: uid,
-              display_name: info.display_name,
-              avatar_url: info.avatar_url,
-              score: info.score,
+
+            // Fetch all profiles in one query
+            const profiles = await fetchProfiles(supabase, [...userScores.keys()]);
+
+            const sorted = [...userScores.entries()].sort((a, b) => b[1] - a[1]);
+            setEntries(sorted.map(([uid, score], i) => {
+              const p = profiles.get(uid);
+              return {
+                id: uid,
+                display_name: p?.display_name || "Player",
+                avatar_url: p?.avatar_url || null,
+                score,
+                rank: i + 1,
+                isYou: uid === currentUserId,
+              };
+            }));
+          }
+        } catch {}
+        if (!cancelled) setLoading(false);
+        return;
+      }
+
+      if (tab === "alltime" && supabase) {
+        try {
+          const { data } = await supabase
+            .from("profiles")
+            .select("id, display_name, avatar_url, total_score, total_games")
+            .gt("total_games", 0)
+            .order("total_score", { ascending: false })
+            .limit(50);
+
+          if (!cancelled && data && data.length > 0) {
+            setEntries(data.map((p: { id: string; display_name: string | null; avatar_url: string | null; total_score: number }, i: number) => ({
+              id: p.id,
+              display_name: p.display_name || "Player",
+              avatar_url: p.avatar_url,
+              score: p.total_score,
               rank: i + 1,
-              isYou: uid === currentUserId,
+              isYou: p.id === currentUserId,
             })));
           }
         } catch {}
+        if (!cancelled) setLoading(false);
+        return;
       }
+
       if (!cancelled) setLoading(false);
     }
 
