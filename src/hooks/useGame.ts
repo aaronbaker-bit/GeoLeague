@@ -5,6 +5,7 @@ import { Guess, Location } from "@/types/game";
 import { haversineDistance } from "@/lib/utils";
 import { getDailyLocations, ROUNDS_PER_DAY, POINTS_PER_ROUND, MAX_DAILY_SCORE } from "@/data/locations";
 import { createClient, isSupabaseConfigured, initAuth } from "@/lib/supabase/client";
+import { checkAchievements, saveNewAchievements } from "@/lib/achievements";
 
 const STORAGE_KEY = "geoleague_daily_v2";
 
@@ -143,6 +144,25 @@ async function syncGameToDatabase(
       time_ms: timeMs,
       best_distance_km: bestDistance,
     });
+
+    // 5. Check and save achievements
+    try {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("total_games, current_streak")
+        .eq("id", userId)
+        .single();
+
+      const earned = checkAchievements({
+        totalScore,
+        maxScore: rounds.length * 200,
+        roundScores: rounds.map(r => r.score),
+        streak,
+        totalGames: profile?.total_games || 1,
+        bestDistanceKm: bestDistance,
+      });
+      await saveNewAchievements(earned);
+    } catch {}
   } catch (e) {
     console.error("Failed to sync game to database:", e);
   }

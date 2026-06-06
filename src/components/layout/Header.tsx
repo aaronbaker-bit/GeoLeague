@@ -45,6 +45,7 @@ export default function Header({ challengeNumber, streak }: HeaderProps) {
             </div>
           )}
           <Link href="/leaderboard" className="p-2 hover:bg-zinc-800 rounded-lg transition-colors text-zinc-400 hover:text-zinc-200"><BarChart3 size={18} /></Link>
+          <Link href="/achievements" className="p-2 hover:bg-zinc-800 rounded-lg transition-colors text-zinc-400 hover:text-zinc-200"><Trophy size={18} /></Link>
           <button onClick={() => setShowFriends(true)} className="p-2 hover:bg-zinc-800 rounded-lg transition-colors text-zinc-400 hover:text-zinc-200"><Users size={18} /></button>
           <button onClick={() => setShowSettings(true)} className="p-2 hover:bg-zinc-800 rounded-lg transition-colors text-zinc-400 hover:text-zinc-200"><Settings size={18} /></button>
           <AuthButton />
