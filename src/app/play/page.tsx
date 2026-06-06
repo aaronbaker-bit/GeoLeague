@@ -8,6 +8,7 @@ import { MapPin, Target, Trophy, Clock, Flame, Share2, Copy, ChevronRight } from
 import { getHeatLevel, getHeatEmoji, formatDistance } from "@/lib/utils";
 import { useState, useEffect } from "react";
 import type { Location } from "@/types/game";
+import { playGuessResult, playGameComplete } from "@/lib/sounds";
 
 const GameMap = dynamic(() => import("@/components/map/GameMap"), {
   ssr: false,
@@ -63,10 +64,14 @@ export default function PlayPage() {
       const latest = rounds[rounds.length - 1];
       setLastResult(latest);
       setShowRoundResult(true);
+      playGuessResult(latest.score);
       const timer = setTimeout(() => setShowRoundResult(false), 3000);
       return () => clearTimeout(timer);
     }
-  }, [rounds.length, isComplete]);
+    if (isComplete && rounds.length > 0) {
+      playGameComplete(totalScore, maxScore);
+    }
+  }, [rounds.length, isComplete, totalScore, maxScore]);
 
   const showTarget = showRoundResult && lastResult;
 

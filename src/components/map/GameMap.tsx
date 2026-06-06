@@ -5,6 +5,7 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { Guess } from "@/types/game";
 import { getHeatLevel } from "@/lib/utils";
+import { playPinDrop } from "@/lib/sounds";
 import { RoundResult } from "@/hooks/useGame";
 
 interface GameMapProps {
@@ -173,6 +174,7 @@ export default function GameMap({
       if (disabled) return;
       const { lat, lng } = e.lngLat;
       setPendingPin({ lat, lng });
+      playPinDrop();
 
       if (pendingMarkerRef.current) {
         pendingMarkerRef.current.remove();
