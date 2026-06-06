@@ -52,6 +52,7 @@ export default function LeaderboardPage() {
 
     async function loadEntries() {
       setLoading(true);
+      setEntries([]); // Clear old data immediately on tab switch
 
       // Ensure auth is initialized before any queries
       await initAuth();
