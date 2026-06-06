@@ -57,38 +57,73 @@ async function syncGameToDatabase(
     const todayDate = new Date().toISOString().split("T")[0];
     const firstLoc = locs[0];
 
-    // 1. Upsert daily_challenges for today
-    const { data: challenge } = await supabase
+    // 1. Always update profile stats (this must never fail silently)
+    try {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("total_games, total_score, current_streak, longest_streak")
+        .eq("id", userId)
+        .single();
+
+      if (profile) {
+        await supabase.from("profiles").update({
+          total_games: (profile.total_games || 0) + 1,
+          total_score: (profile.total_score || 0) + totalScore,
+          current_streak: streak,
+          longest_streak: Math.max(profile.longest_streak || 0, streak),
+          updated_at: new Date().toISOString(),
+        }).eq("id", userId);
+      }
+    } catch {}
+
+    // 2. Get or create today's challenge
+    let challengeId: string | null = null;
+
+    // Try to find existing challenge for today
+    const { data: existingChallenge } = await supabase
       .from("daily_challenges")
-      .upsert({
-        challenge_number: challengeNumber,
-        date: todayDate,
-        location_id: firstLoc.id,
-        location_name: firstLoc.name,
-        lat: firstLoc.lat,
-        lng: firstLoc.lng,
-        country: firstLoc.country,
-        continent: firstLoc.continent,
-        category: firstLoc.category,
-        difficulty: firstLoc.difficulty,
-        hints: firstLoc.hints,
-      }, { onConflict: "date" })
       .select("id")
-      .single();
+      .eq("date", todayDate)
+      .maybeSingle();
 
-    if (!challenge) return;
+    if (existingChallenge) {
+      challengeId = existingChallenge.id;
+    } else {
+      // Create new challenge
+      const { data: newChallenge } = await supabase
+        .from("daily_challenges")
+        .insert({
+          challenge_number: challengeNumber,
+          date: todayDate,
+          location_id: firstLoc.id,
+          location_name: firstLoc.name,
+          lat: firstLoc.lat,
+          lng: firstLoc.lng,
+          country: firstLoc.country,
+          continent: firstLoc.continent,
+          category: firstLoc.category,
+          difficulty: firstLoc.difficulty,
+          hints: firstLoc.hints,
+        })
+        .select("id")
+        .single();
 
-    // 2. Check if already saved
+      challengeId = newChallenge?.id || null;
+    }
+
+    if (!challengeId) return;
+
+    // 3. Check if result already saved
     const { data: existing } = await supabase
       .from("game_results")
       .select("id")
       .eq("user_id", userId)
-      .eq("challenge_id", challenge.id)
+      .eq("challenge_id", challengeId)
       .maybeSingle();
 
     if (existing) return;
 
-    // 3. Save game result
+    // 4. Save game result
     const guessesData = rounds.map(r => ({
       location: r.location.name,
       lat: r.guess.lat,
@@ -101,30 +136,13 @@ async function syncGameToDatabase(
 
     await supabase.from("game_results").insert({
       user_id: userId,
-      challenge_id: challenge.id,
+      challenge_id: challengeId,
       challenge_number: challengeNumber,
       score: totalScore,
       guesses: guessesData,
       time_ms: timeMs,
       best_distance_km: bestDistance,
     });
-
-    // 4. Update profile stats
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("total_games, total_score, current_streak, longest_streak")
-      .eq("id", userId)
-      .single();
-
-    if (profile) {
-      await supabase.from("profiles").update({
-        total_games: (profile.total_games || 0) + 1,
-        total_score: (profile.total_score || 0) + totalScore,
-        current_streak: streak,
-        longest_streak: Math.max(profile.longest_streak || 0, streak),
-        updated_at: new Date().toISOString(),
-      }).eq("id", userId);
-    }
   } catch (e) {
     console.error("Failed to sync game to database:", e);
   }
