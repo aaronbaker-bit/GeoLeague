@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { Guess, Location } from "@/types/game";
 import { haversineDistance } from "@/lib/utils";
 import { getDailyLocations, ROUNDS_PER_DAY, POINTS_PER_ROUND, MAX_DAILY_SCORE } from "@/data/locations";
-import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { createClient, isSupabaseConfigured, initAuth } from "@/lib/supabase/client";
 
 const STORAGE_KEY = "geoleague_daily_v2";
 
@@ -45,6 +45,7 @@ async function syncGameToDatabase(
   locs: Location[],
 ) {
   if (!isSupabaseConfigured()) return;
+  await initAuth(); // Ensure session is restored before querying
   const supabase = createClient();
   if (!supabase) return;
 
