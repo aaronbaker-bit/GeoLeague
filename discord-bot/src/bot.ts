@@ -48,7 +48,95 @@ const commands = [
   new SlashCommandBuilder()
     .setName("server-leaderboard")
     .setDescription("Show this server's all-time top players"),
+  new SlashCommandBuilder()
+    .setName("notify")
+    .setDescription("Set this channel for daily challenge notifications"),
+  new SlashCommandBuilder()
+    .setName("notify-stop")
+    .setDescription("Stop daily notifications in this channel"),
 ];
+
+// --- Daily notification system ---
+const notifyChannels = new Set<string>(); // channel IDs
+
+async function loadNotifyChannels() {
+  const { data } = await supabase.from("notification_channels").select("channel_id");
+  if (data) data.forEach((r: { channel_id: string }) => notifyChannels.add(r.channel_id));
+  console.log(`Loaded ${notifyChannels.size} notification channels`);
+}
+
+async function handleNotify(interaction: ChatInputCommandInteraction) {
+  const channelId = interaction.channelId;
+  const guildId = interaction.guildId;
+  if (!guildId) { await interaction.reply({ content: "This only works in a server.", ephemeral: true }); return; }
+
+  await supabase.from("notification_channels").upsert({ guild_id: guildId, channel_id: channelId }, { onConflict: "guild_id" });
+  notifyChannels.add(channelId);
+  await interaction.reply("Daily challenge notifications will be posted in this channel at midnight UTC!");
+}
+
+async function handleNotifyStop(interaction: ChatInputCommandInteraction) {
+  const guildId = interaction.guildId;
+  if (!guildId) { await interaction.reply({ content: "This only works in a server.", ephemeral: true }); return; }
+
+  const { data } = await supabase.from("notification_channels").select("channel_id").eq("guild_id", guildId).single();
+  if (data) notifyChannels.delete(data.channel_id);
+  await supabase.from("notification_channels").delete().eq("guild_id", guildId);
+  await interaction.reply("Daily notifications stopped for this server.");
+}
+
+function scheduleDailyNotification() {
+  const now = new Date();
+  const nextMidnight = new Date(now);
+  nextMidnight.setUTCDate(nextMidnight.getUTCDate() + 1);
+  nextMidnight.setUTCHours(0, 0, 10, 0); // 10 seconds past midnight
+  const msUntil = nextMidnight.getTime() - now.getTime();
+
+  console.log(`Next daily notification in ${Math.round(msUntil / 60000)} minutes`);
+
+  setTimeout(async () => {
+    await postDailyNotification();
+    // Schedule next one
+    scheduleDailyNotification();
+  }, msUntil);
+}
+
+async function postDailyNotification() {
+  if (notifyChannels.size === 0) return;
+
+  // Calculate challenge number
+  const startDay = Date.UTC(2026, 5, 4);
+  const today = new Date();
+  const utcToday = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  const challengeNumber = Math.floor((utcToday - startDay) / 86400000) + 1;
+
+  const embed = new EmbedBuilder()
+    .setColor(0x8b5cf6)
+    .setTitle(`🌍 Daily Challenge #${challengeNumber} is LIVE!`)
+    .setDescription("A new set of 6 mystery locations awaits. Can you beat your friends?")
+    .setFooter({ text: "GeoLeague — The Wordle of Geography" })
+    .setTimestamp();
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setLabel("Play Now")
+      .setURL(`${APP_URL}/play`)
+      .setStyle(ButtonStyle.Link)
+      .setEmoji("🎯")
+  );
+
+  for (const channelId of notifyChannels) {
+    try {
+      const channel = await client.channels.fetch(channelId);
+      if (channel && "send" in channel) {
+        await (channel as { send: (opts: unknown) => Promise<void> }).send({ embeds: [embed], components: [row] });
+      }
+    } catch (err) {
+      console.error(`Failed to send to channel ${channelId}:`, err);
+    }
+  }
+  console.log(`Posted daily notification to ${notifyChannels.size} channels`);
+}
 
 async function registerCommands() {
   const rest = new REST().setToken(DISCORD_TOKEN);
@@ -289,9 +377,11 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds],
 });
 
-client.once("ready", () => {
+client.once("ready", async () => {
   console.log(`Bot logged in as ${client.user?.tag}`);
-  registerCommands();
+  await registerCommands();
+  await loadNotifyChannels();
+  scheduleDailyNotification();
 });
 
 client.on("interactionCreate", async (interaction) => {
@@ -305,6 +395,8 @@ client.on("interactionCreate", async (interaction) => {
     challenge: handleChallenge,
     rank: handleRank,
     "server-leaderboard": handleLeaderboard,
+    notify: handleNotify,
+    "notify-stop": handleNotifyStop,
   };
 
   const handler = handlers[interaction.commandName];
